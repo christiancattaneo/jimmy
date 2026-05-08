@@ -1,0 +1,56 @@
+{
+  "name": "jimmy",
+  "version": "0.1.0",
+  "description": "Pries open the database the application thinks is locked. RLS, multi-tenant isolation, transaction anomalies, schema integrity, migration safety.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "jimmy": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "start": "node dist/cli/index.js",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "database",
+    "postgres",
+    "rls",
+    "row-level-security",
+    "multi-tenant",
+    "isolation",
+    "transaction",
+    "anomaly",
+    "schema",
+    "migration",
+    "jepsen",
+    "property-testing",
+    "security",
+    "pentest"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "ora": "^8.1.0",
+    "pg": "^8.13.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.11.10",
+    "tsup": "^8.3.5",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.5"
+  }
+}

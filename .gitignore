@@ -1,0 +1,179 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+jspm_packages/
+
+# Build output
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Lock files (npm only)
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.cursor/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.key
+*.crt
+*.cert
+*.cer
+*.p12
+*.pfx
+*.jks
+secrets/
+credentials/
+*.credentials
+*.credential
+
+# API keys (common patterns)
+*apikey*
+*api-key*
+*api_key*
+*secret*
+*password*
+!*.example
+!*.template
+
+# Database connection strings (extra paranoia for jimmy)
+*database-url*
+*db-url*
+*connection-string*
+.pgpass
+.my.cnf
+
+# Test output
+coverage/
+.nyc_output/
+*.lcov
+test-results/
+junit.xml
+.vitest-cache/
+
+# Runtime
+*.pid
+*.seed
+*.pid.lock
+
+# Cache
+.cache/
+.npm/
+.eslintcache
+.parcel-cache/
+.turbo/
+.next/
+.nuxt/
+
+# Audit reports (may contain DB schema and tenant ids)
+audit-report*
+jimmy-report*
+*.proof.json
+*.findings.json
+reports/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+*.rej
+
+# Database files & dumps (jimmy's most paranoid section)
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sql.bak
+*.dump
+*.bak.sql
+*-dump.sql
+pg_dump_*
+mysqldump_*
+dumps/
+backups/
+
+# Migration artifacts
+.migration-state
+migration-lock.json
+.atlas/
+
+# Debug
+*.map
+.source-maps/
+.heapsnapshot
+*.heapprofile
+*.cpuprofile
+
+# Terraform/Infrastructure
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Docker
+docker-compose.override.yml
+.docker/
+
+# Core dumps
+core
+core.*
+
+# Binary artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+*.a
+
+# Compressed files
+*.zip
+*.tar
+*.gz
+*.tgz
+*.rar
+*.7z
+
+# Generated docs
+docs/api/
+typedoc-out/
+
+# Local fixtures (may contain real production schemas)
+fixtures/local/
+fixtures/private/
+*.local.sql
