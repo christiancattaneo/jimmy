@@ -6,21 +6,21 @@
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { lintSqlText } from "./lint.js";
+import { lintSqlText, type Rule } from "./lint.js";
 import type { Finding } from "../../report/findings.js";
 
-export function lintFile(filePath: string): Finding[] {
+export function lintFile(filePath: string, extraRules: Rule[] = []): Finding[] {
   const text = readFileSync(filePath, "utf-8");
-  return lintSqlText(text, filePath);
+  return lintSqlText(text, filePath, extraRules);
 }
 
-export function lintDirectory(dirPath: string): Finding[] {
+export function lintDirectory(dirPath: string, extraRules: Rule[] = []): Finding[] {
   const files: string[] = [];
   walk(dirPath, files);
   const all: Finding[] = [];
   for (const f of files) {
     if (!f.endsWith(".sql")) continue;
-    all.push(...lintFile(f));
+    all.push(...lintFile(f, extraRules));
   }
   return all;
 }

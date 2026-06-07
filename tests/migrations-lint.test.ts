@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lintSqlText, _internal } from "../src/checks/migrations/lint.js";
+import { lintSqlText, compileCustomRules, _internal } from "../src/checks/migrations/lint.js";
 
 describe("stripComments", () => {
   const { stripComments } = _internal;
@@ -102,6 +102,22 @@ describe("migration linter rules", () => {
   it("flags CREATE INDEX CONCURRENTLY ON ONLY (partitioned parent)", () => {
     const r = lintSqlText("CREATE INDEX CONCURRENTLY idx ON ONLY parent (a);", "f.sql");
     expect(r.find((f) => f.ruleId === "migration.partitioned-index")).toBeDefined();
+  });
+
+  it("applies a custom rule from config", () => {
+    const rules = compileCustomRules([
+      { id: "no-jsonb", severity: "medium", title: "jsonb added", description: "team policy", pattern: "add column[^;]*jsonb" },
+    ]);
+    const r = lintSqlText("ALTER TABLE t ADD COLUMN data jsonb;", "f.sql", rules);
+    expect(r.find((f) => f.ruleId === "custom.no-jsonb")?.severity).toBe("medium");
+  });
+
+  it("namespaces custom rule ids under custom. and skips invalid regexes", () => {
+    const rules = compileCustomRules([
+      { id: "already.custom", severity: "low", title: "t", description: "d", pattern: "select" },
+      { id: "bad", severity: "low", title: "t", description: "d", pattern: "(" },
+    ]);
+    expect(rules.map((r) => r.id)).toEqual(["custom.already.custom"]); // bad regex dropped, valid one kept as-is (already namespaced-ish)
   });
 
   it("flags ON DELETE SET DEFAULT foreign keys", () => {

@@ -43,7 +43,13 @@ export { auditPii } from "./checks/pii/audit.js";
 export { auditIndexes, type IndexAuditOptions, type IndexAuditResult } from "./checks/indexes/audit.js";
 export { diffSnapshots } from "./checks/regression/diff.js";
 export { redactFindings, redactSql } from "./report/redact.js";
-export { lintSqlText, type MigrationLintOptions } from "./checks/migrations/lint.js";
+export {
+  lintSqlText,
+  compileCustomRules,
+  type MigrationLintOptions,
+  type Rule,
+  type CustomMigrationRule,
+} from "./checks/migrations/lint.js";
 export { lintFile, lintDirectory } from "./checks/migrations/lint-fs.js";
 export {
   runAnomalyProbes,

@@ -27,6 +27,17 @@ export const JimmyConfigSchema = z
     roles: z.array(z.string()).optional(),
     jwtSubKey: z.string().optional(),
     baseline: z.string().optional(),
+    customMigrationRules: z
+      .array(
+        z.object({
+          id: z.string(),
+          severity: z.enum(["info", "low", "medium", "high", "critical"]),
+          title: z.string(),
+          description: z.string(),
+          pattern: z.string(),
+        }),
+      )
+      .optional(),
   })
   .strict();
 

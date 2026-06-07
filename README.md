@@ -247,6 +247,18 @@ built-in defaults. unknown keys are rejected so typos fail loudly.
 mark tenant ownership in your schema. `jwtSubKey` sets the jwt claim the fuzzer
 uses as the tenant identity.
 
+`customMigrationRules` adds your own DDL lint rules (team policies), matched as
+case-insensitive regexes per statement:
+
+```json
+{
+  "customMigrationRules": [
+    { "id": "no-jsonb", "severity": "medium", "title": "jsonb column added",
+      "description": "team prefers normalized columns", "pattern": "add column[^;]*jsonb" }
+  ]
+}
+```
+
 ### per-category thresholds
 
 `--fail-on` takes a bare severity or a per-category spec. categories: `rls`

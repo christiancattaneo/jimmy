@@ -21,7 +21,7 @@ export interface MigrationLintOptions {
   dir?: string;
 }
 
-interface Rule {
+export interface Rule {
   id: string;
   severity: Severity;
   title: string;
@@ -374,11 +374,42 @@ function isSuppressed(
   return false;
 }
 
-export function lintSqlText(text: string, filePath: string): Finding[] {
+export interface CustomMigrationRule {
+  id: string;
+  severity: Severity;
+  title: string;
+  description: string;
+  /** Case-insensitive regex source matched against each statement. */
+  pattern: string;
+}
+
+/**
+ * Compile custom rules from config into Rule objects. Invalid regexes are
+ * skipped (the caller validates config shape; a bad pattern should not crash
+ * a lint run). Custom rule ids are namespaced under `custom.` if not already.
+ */
+export function compileCustomRules(custom: CustomMigrationRule[] | undefined): Rule[] {
+  if (!custom) return [];
+  const out: Rule[] = [];
+  for (const c of custom) {
+    let re: RegExp;
+    try {
+      re = new RegExp(c.pattern, "i");
+    } catch {
+      continue;
+    }
+    const id = c.id.startsWith("custom.") ? c.id : `custom.${c.id}`;
+    out.push({ id, severity: c.severity, title: c.title, description: c.description, test: (s) => re.test(s) });
+  }
+  return out;
+}
+
+export function lintSqlText(text: string, filePath: string, extraRules: Rule[] = []): Finding[] {
   const findings: Finding[] = [];
   const statements = splitStatementsWithPositions(text);
   const directives = parseIgnoreDirectives(text);
   const rawLines = text.split("\n");
+  const rules = extraRules.length > 0 ? [...RULES, ...extraRules] : RULES;
 
   let hasDdl = false;
   let setsLockTimeout = false;
@@ -391,7 +422,7 @@ export function lintSqlText(text: string, filePath: string): Finding[] {
       hasDdl = true;
     }
     if (LOCK_TIMEOUT_RE.test(stmt)) setsLockTimeout = true;
-    for (const rule of RULES) {
+    for (const rule of rules) {
       if (rule.test(stmt)) {
         const scope = `${filePath}:${rule.id}:${i}`;
         findings.push({

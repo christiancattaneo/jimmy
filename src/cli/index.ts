@@ -26,6 +26,7 @@ import { diffSnapshots } from "../checks/regression/diff.js";
 import { readFileSync } from "node:fs";
 import type { SchemaSnapshot } from "../db/introspect.js";
 import { lintFile, lintDirectory } from "../checks/migrations/lint-fs.js";
+import { compileCustomRules } from "../checks/migrations/lint.js";
 import { runAnomalyProbes, ALL_ISOLATION_LEVELS, type AnomalyName, type IsolationLevel } from "../checks/anomalies/probes.js";
 import { detectNplusOne, detectNplusOneFromTrace, pgStatStatementsAvailable, readPgStatStatements, readQueryLog, readTrace } from "../checks/nplusone/detect.js";
 import { buildReport, reportToJson, reportToMarkdown, reportToSarif, reportToHtml } from "../report/generate.js";
@@ -292,8 +293,9 @@ async function migrationsCmd(
   const findings: Finding[] = [];
   const sp = ora("linting migrations").start();
   try {
-    if (opts.file) findings.push(...lintFile(opts.file));
-    if (opts.dir) findings.push(...lintDirectory(opts.dir));
+    const extraRules = compileCustomRules(configFor(opts).customMigrationRules);
+    if (opts.file) findings.push(...lintFile(opts.file, extraRules));
+    if (opts.dir) findings.push(...lintDirectory(opts.dir, extraRules));
     sp.succeed(`linted ${opts.file ? "1 file" : "directory " + opts.dir}`);
     finalize(findings, opts, "jimmy-migrations", "jimmy: migration lint", opts.file ?? opts.dir ?? ".");
   } catch (e) {
