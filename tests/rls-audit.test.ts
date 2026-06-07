@@ -159,6 +159,21 @@ describe("auditRls: rls.tenant-no-filter", () => {
     expect(f.find((x) => x.ruleId === "rls.tenant-no-filter")).toBeDefined();
   });
 
+  it("does not flag a deny-all USING(false) policy (service-role lockdown is safe)", () => {
+    const f = auditRls(
+      snapshot({
+        tables: [{ schema: "public", name: "admin_sessions", rlsEnabled: true, rlsForced: true, estimatedRows: 1 }],
+        columns: [
+          { schema: "public", table: "admin_sessions", name: "user_id", ordinal: 1, dataType: "uuid", isNullable: false, hasDefault: false, default: null },
+        ],
+        policies: [
+          { schema: "public", table: "admin_sessions", name: "service_role_only", type: "PERMISSIVE", command: "ALL", roles: ["authenticated"], using: "false", withCheck: null },
+        ],
+      }),
+    );
+    expect(f.find((x) => x.ruleId === "rls.tenant-no-filter")).toBeUndefined();
+  });
+
   it("does not flag policies that DO reference the tenant column", () => {
     const f = auditRls(
       snapshot({

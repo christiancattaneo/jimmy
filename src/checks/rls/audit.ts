@@ -71,6 +71,17 @@ function isTriviallyTrue(clause: string | null): boolean {
   );
 }
 
+/**
+ * Is this clause trivially false (a deny-all)? A `USING (false)` policy is the
+ * common "service_role only" lockdown: it leaks nothing, so it must not be
+ * flagged as tenant-no-filter just because it does not name a tenant column.
+ */
+function isTriviallyFalse(clause: string | null): boolean {
+  if (clause === null) return false;
+  const n = clause.trim().toLowerCase().replace(/\s+/g, " ");
+  return n === "false" || n === "(false)" || n === "1=0" || n === "(1=0)" || n === "(1 = 0)" || n === "1 = 0";
+}
+
 function clauseReferencesAny(clause: string | null, columns: string[]): boolean {
   if (clause === null) return false;
   const lower = clause.toLowerCase();
@@ -183,7 +194,11 @@ export function auditRls(snapshot: SchemaSnapshot, opts: RlsAuditOptions = {}): 
           (clauseReferencesAny(policy.using, tableTenantCols) ||
             clauseReferencesAny(policy.withCheck, tableTenantCols));
 
-        if (tableTenantCols.length > 0 && !refsTenant) {
+        // A deny-all (USING (false)) policy leaks nothing, so it is not a
+        // tenant-no-filter problem even though it names no tenant column.
+        const denyAll = isTriviallyFalse(policy.using);
+
+        if (tableTenantCols.length > 0 && !refsTenant && !denyAll) {
           findings.push({
             id: findingId("rls-audit", "rls.tenant-no-filter", policyScope),
             category: "rls-audit",
