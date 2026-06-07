@@ -34,6 +34,7 @@ export {
 
 export { auditRls, type RlsAuditOptions } from "./checks/rls/audit.js";
 export { auditRpc, type RpcAuditOptions } from "./checks/rls/rpc.js";
+export { auditStorage, type StorageAuditResult } from "./checks/storage/audit.js";
 export { fuzzRls, type RlsFuzzOptions, type RlsFuzzResult } from "./checks/rls/fuzz.js";
 export { auditSchema, type SchemaAuditOptions } from "./checks/schema/audit.js";
 export {
