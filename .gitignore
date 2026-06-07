@@ -140,6 +140,11 @@ backups/
 migration-lock.json
 .atlas/
 
+# Scanner caches (slopometer/pinata/etc run against jimmy itself)
+.pinata/
+.slopometer/
+.vercel/
+
 # Debug
 *.map
 .source-maps/
