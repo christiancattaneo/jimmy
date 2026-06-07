@@ -16,6 +16,8 @@ import { SafetyGuard, SafetyViolationError, DEFAULT_SAFETY_CONFIG, type SafetyMo
 import { auditRls } from "../checks/rls/audit.js";
 import { auditRpc } from "../checks/rls/rpc.js";
 import { auditStorage } from "../checks/storage/audit.js";
+import { auditRealtime } from "../checks/realtime/audit.js";
+import { auditCron } from "../checks/cron/audit.js";
 import { fuzzRls } from "../checks/rls/fuzz.js";
 import { auditSchema } from "../checks/schema/audit.js";
 import { lintFile, lintDirectory } from "../checks/migrations/lint.js";
@@ -149,8 +151,11 @@ async function rlsAuditCmd(opts: CommonOpts) {
     const snapshot = await conn.withClient((c) => introspect(c));
     sp.succeed(`introspected ${snapshot.tables.length} tables, ${snapshot.policies.length} policies`);
     const findings = [...auditRls(snapshot), ...auditRpc(snapshot)];
-    const storage = await conn.withClient((c) => auditStorage(c));
-    findings.push(...storage.findings);
+    await conn.withClient(async (c) => {
+      findings.push(...(await auditStorage(c)).findings);
+      findings.push(...(await auditRealtime(c, snapshot)).findings);
+      findings.push(...(await auditCron(c)).findings);
+    });
     finalize(findings, opts, "jimmy-rls", "jimmy: rls audit", conn.shape.database);
   } catch (e) {
     sp.fail(coerceMsg(e));
@@ -300,9 +305,22 @@ async function scanCmd(opts: CommonOpts & { migrationsDir?: string }) {
     const sp2 = ora("auditing rls").start();
     findings.push(...auditRls(snapshot));
     findings.push(...auditRpc(snapshot));
-    const storage = await conn.withClient((c) => auditStorage(c));
-    findings.push(...storage.findings);
-    sp2.succeed(`rls audit done${storage.storagePresent ? " (incl. storage)" : ""}`);
+    let extras = "";
+    await conn.withClient(async (c) => {
+      const storage = await auditStorage(c);
+      findings.push(...storage.findings);
+      const realtime = await auditRealtime(c, snapshot);
+      findings.push(...realtime.findings);
+      const cron = await auditCron(c);
+      findings.push(...cron.findings);
+      const present = [
+        storage.storagePresent && "storage",
+        realtime.realtimePresent && "realtime",
+        cron.cronPresent && "cron",
+      ].filter(Boolean);
+      if (present.length > 0) extras = ` (incl. ${present.join(", ")})`;
+    });
+    sp2.succeed(`rls audit done${extras}`);
 
     const sp3 = ora("auditing schema integrity").start();
     findings.push(...auditSchema(snapshot));

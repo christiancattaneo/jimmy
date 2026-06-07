@@ -15,6 +15,8 @@ slopometer, pinata, whackamole, crowbar, orion all touch the database, but only 
 - **rls bypass**: tables with rls disabled, permissive `USING (true)` policies, columns reachable as the anon role, policies that depend on `auth.uid()` but are reachable unauthenticated
 - **rpc bypass**: `SECURITY DEFINER` functions callable by anon/authenticated (they run as the owner and skip the caller's rls), and definer functions without a pinned `search_path` (name-resolution hijack, a cve-class hazard)
 - **storage leaks**: public supabase storage buckets, buckets with no file-size limit, `storage.objects` with rls disabled, and permissive `USING(true)` storage policies granted to public roles
+- **realtime leaks**: tables in the `supabase_realtime` publication with rls disabled (every change is streamed to subscribers with no filtering) or with rls on but no policy
+- **scheduled jobs**: pg_cron jobs that run as a privileged role with no request context (rls bypassed by design), flagging those that do DML as a superuser or call out over pg_net
 - **multi-tenant leakage**: seed two tenants, authenticate as A, prove A cannot read, update, or delete any of B's rows across every table. mechanically enumerated from the schema
 - **transaction anomalies**: hermitage-style probes for lost update, write skew, read skew, and G2 (anti-dependency cycles). run at every isolation level and assert the database actually behaves the way the app assumes
 - **schema integrity**: missing foreign keys, weak `NOT NULL`, missing `UNIQUE`, missing `CHECK`, soft-delete columns referenced inconsistently, nullable columns the app code assumes are non-null
