@@ -365,6 +365,13 @@ async function seedTenantRow(
     }
   }
 
+  // SQL-injection safety: every identifier here is wrapped by fqi()/
+  // quoteIdentifier() (double-quoted, internal quotes doubled) and every value
+  // in `vals` is either DEFAULT, a parameter-free literal that was escaped in
+  // buildInsertForTenant/seedTenantRow, or a format_type cast (already quoted
+  // by Postgres). Proven against hostile identifiers in
+  // tests/integration/injection.test.ts (canary survives). Identifiers cannot
+  // be bound parameters in SQL, so quoting is the correct defense.
   const sql =
     cols.length === 0
       ? `INSERT INTO ${fqi(plan.table.schema, plan.table.name)} DEFAULT VALUES${plan.primaryKey ? ` RETURNING ${quoteIdentifier(plan.primaryKey)}` : ""}`

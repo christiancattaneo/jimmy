@@ -85,6 +85,9 @@ async function teardownSchema(client: Client, schema: string): Promise<void> {
 }
 
 async function reseed(client: Client, schema: string, rows: Array<[number, number, string]>) {
+  // SQL-injection safety: `schema` is validated against ^[a-z_][a-z0-9_]*$ in
+  // runAnomalyProbes before any DDL runs, and `values` are bound parameter
+  // placeholders ($1,$2,...) with the actual data passed in `params`.
   await client.query(`TRUNCATE ${schema}.kv`);
   if (rows.length === 0) return;
   const values = rows.map(([id, val, tag], i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`);
