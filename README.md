@@ -22,6 +22,7 @@ slopometer, pinata, whackamole, crowbar, orion all touch the database, but only 
 - **schema integrity**: missing foreign keys, weak `NOT NULL`, missing `UNIQUE`, missing `CHECK`, soft-delete columns referenced inconsistently, nullable columns the app code assumes are non-null
 - **secrets at rest**: plaintext `password` columns (must be hashed), secret material (api keys, tokens, private keys) in plaintext, and high-sensitivity PII (ssn, card number, cvv) in plaintext. ignores already-hashed/encrypted columns and routine fields like email/phone
 - **migration safety**: squawk-style linter for dangerous DDL: `ALTER TABLE ... ADD COLUMN ... NOT NULL` without default, non-`CONCURRENTLY` index creation, type rewrites, dropping columns still referenced
+- **index coverage**: EXPLAINs tenant/foreign-key lookups on large tables and flags sequential scans (the planner, not just the catalog, confirms a missing index)
 - **n+1 detection**: groups query templates from `pg_stat_statements` or a recorded log, flags repeated executions per request
 
 ## install
