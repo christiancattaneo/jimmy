@@ -2,7 +2,7 @@
 
 pries open the database the application thinks is locked.
 
-site: https://site-ochre-one.vercel.app
+site: https://jimmy-sage.vercel.app
 
 a crowbar tests the front door. jimmy tests the **basement** the front door is hiding. it pokes at the gaps the other tools miss: row-level security, multi-tenant isolation, transactional anomalies, schema integrity, and migration safety.
 
