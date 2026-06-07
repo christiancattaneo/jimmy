@@ -87,6 +87,22 @@ describe("buildReport", () => {
     expect(md).toContain("Findings");
   });
 
+  it("groups findings by category with a table of contents", () => {
+    const findings: Finding[] = [
+      f("critical", "rls-audit", "a", "x"),
+      f("high", "migrations", "b", "y"),
+      f("low", "schema", "c", "z"),
+    ];
+    const md = reportToMarkdown(buildReport(findings, { title: "t", target: "x" }));
+    // TOC links with counts
+    expect(md).toContain("[Row-level security](#row-level-security) (1)");
+    expect(md).toContain("[Migration safety](#migration-safety) (1)");
+    expect(md).toContain("[Schema integrity](#schema-integrity) (1)");
+    // category section headers
+    expect(md).toContain("## Row-level security");
+    expect(md).toContain("## Migration safety");
+  });
+
   it("markdown gracefully handles zero findings", () => {
     const md = reportToMarkdown(buildReport([], { title: "t", target: "x" }));
     expect(md).toContain("No findings");

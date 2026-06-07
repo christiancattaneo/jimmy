@@ -170,43 +170,82 @@ export function reportToMarkdown(report: JimmyReport): string {
     lines.push("");
     return lines.join("\n");
   }
+  // Group findings by category; findings are already sorted by severity then
+  // category then rule, so re-grouping keeps the most severe first within each.
+  const byCategory = new Map<string, Finding[]>();
+  for (const f of report.findings) {
+    const arr = byCategory.get(f.category) ?? [];
+    arr.push(f);
+    byCategory.set(f.category, arr);
+  }
+  const orderedCategories = [...byCategory.keys()].sort();
+
+  // Table of contents: one line per category with its finding count.
   lines.push(`## Findings`);
   lines.push("");
-  for (const f of report.findings) {
-    lines.push(`### ${f.id} [${f.severity}] ${f.title}`);
+  for (const cat of orderedCategories) {
+    const count = byCategory.get(cat)!.length;
+    lines.push(`- [${CATEGORY_TITLES[cat] ?? cat}](#${anchor(cat)}) (${count})`);
+  }
+  lines.push("");
+
+  for (const cat of orderedCategories) {
+    lines.push(`## ${CATEGORY_TITLES[cat] ?? cat}`);
     lines.push("");
-    lines.push(`**Rule**: \`${f.ruleId}\``);
-    if (f.location.schema || f.location.table || f.location.column) {
-      const parts = [f.location.schema, f.location.table, f.location.column].filter(Boolean);
-      lines.push(`**Location**: \`${parts.join(".")}\``);
-    }
-    if (f.location.role) lines.push(`**Role**: \`${f.location.role}\``);
-    if (f.location.file) {
-      const loc = f.location.line ? `${f.location.file}:${f.location.line}` : f.location.file;
-      lines.push(`**File**: \`${loc}\``);
-    }
-    lines.push("");
-    lines.push(f.description);
-    lines.push("");
-    if (f.remediation) {
-      lines.push("Remediation:");
+    for (const f of byCategory.get(cat)!) {
+      lines.push(`### ${f.id} [${f.severity}] ${f.title}`);
       lines.push("");
-      lines.push("```sql");
-      lines.push(f.remediation);
-      lines.push("```");
+      lines.push(`**Rule**: \`${f.ruleId}\``);
+      if (f.location.schema || f.location.table || f.location.column) {
+        const parts = [f.location.schema, f.location.table, f.location.column].filter(Boolean);
+        lines.push(`**Location**: \`${parts.join(".")}\``);
+      }
+      if (f.location.role) lines.push(`**Role**: \`${f.location.role}\``);
+      if (f.location.file) {
+        const loc = f.location.line ? `${f.location.file}:${f.location.line}` : f.location.file;
+        lines.push(`**File**: \`${loc}\``);
+      }
       lines.push("");
-    }
-    if (f.evidence) {
-      lines.push("<details>");
-      lines.push("<summary>evidence</summary>");
+      lines.push(f.description);
       lines.push("");
-      lines.push("```json");
-      lines.push(JSON.stringify(f.evidence, null, 2));
-      lines.push("```");
-      lines.push("");
-      lines.push("</details>");
-      lines.push("");
+      if (f.remediation) {
+        lines.push("Remediation:");
+        lines.push("");
+        lines.push("```sql");
+        lines.push(f.remediation);
+        lines.push("```");
+        lines.push("");
+      }
+      if (f.evidence) {
+        lines.push("<details>");
+        lines.push("<summary>evidence</summary>");
+        lines.push("");
+        lines.push("```json");
+        lines.push(JSON.stringify(f.evidence, null, 2));
+        lines.push("```");
+        lines.push("");
+        lines.push("</details>");
+        lines.push("");
+      }
     }
   }
   return lines.join("\n");
+}
+
+const CATEGORY_TITLES: Record<string, string> = {
+  "rls-audit": "Row-level security",
+  "rls-fuzz": "Tenant isolation (fuzz)",
+  schema: "Schema integrity",
+  migrations: "Migration safety",
+  anomalies: "Transaction anomalies",
+  nplusone: "N+1 queries",
+};
+
+/** GitHub-style markdown anchor for a heading derived from a category title. */
+function anchor(category: string): string {
+  const title = CATEGORY_TITLES[category] ?? category;
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9 -]/g, "")
+    .replace(/ /g, "-");
 }
