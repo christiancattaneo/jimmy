@@ -79,11 +79,21 @@ interface CommonOpts {
   config?: string;
   diff?: boolean;
   redact?: boolean;
+  includeSchema?: string[];
+  excludeSchema?: string[];
 }
 
 /** Load config once per command and cache it on the opts object. */
 function configFor(opts: CommonOpts): JimmyConfig {
   return loadConfig(opts.config);
+}
+
+/** Build introspection options (schema scoping) from CLI flags. */
+function introspectOpts(opts: CommonOpts): { includeSchemas?: string[]; excludeSchemas?: string[] } {
+  const o: { includeSchemas?: string[]; excludeSchemas?: string[] } = {};
+  if (opts.includeSchema && opts.includeSchema.length > 0) o.includeSchemas = opts.includeSchema;
+  if (opts.excludeSchema && opts.excludeSchema.length > 0) o.excludeSchemas = opts.excludeSchema;
+  return o;
 }
 
 function buildGuard(opts: CommonOpts): SafetyGuard {
@@ -203,7 +213,7 @@ async function rlsAuditCmd(opts: CommonOpts) {
   let conn: Awaited<ReturnType<typeof buildConnection>> | null = null;
   try {
     conn = await buildConnection({ ...opts, mode: "read-only" });
-    const snapshot = await conn.withClient((c) => introspect(c));
+    const snapshot = await conn.withClient((c) => introspect(c, introspectOpts(opts)));
     sp.succeed(`introspected ${snapshot.tables.length} tables, ${snapshot.policies.length} policies`);
     const cfg = configFor(opts);
     const findings = [
@@ -231,7 +241,7 @@ async function rlsFuzzCmd(opts: CommonOpts & { roles?: string; maxTables?: numbe
   let conn: Awaited<ReturnType<typeof buildConnection>> | null = null;
   try {
     conn = await buildConnection({ ...opts, mode: "test-schema" });
-    const snapshot = await conn.withClient((c) => introspect(c));
+    const snapshot = await conn.withClient((c) => introspect(c, introspectOpts(opts)));
     sp.text = "fuzzing rls (creates throwaway rows inside a rolled-back transaction)";
     const cfg = configFor(opts);
     const cliRoles = opts.roles?.split(",").map((s) => s.trim()).filter(Boolean);
@@ -270,7 +280,7 @@ async function schemaCmd(opts: CommonOpts) {
   let conn: Awaited<ReturnType<typeof buildConnection>> | null = null;
   try {
     conn = await buildConnection({ ...opts, mode: "read-only" });
-    const snapshot = await conn.withClient((c) => introspect(c));
+    const snapshot = await conn.withClient((c) => introspect(c, introspectOpts(opts)));
     sp.succeed(`audited ${snapshot.tables.length} tables`);
     const findings = [...auditSchema(snapshot), ...auditPii(snapshot)];
     const idx = await conn.withClient((c) => auditIndexes(c, snapshot));
@@ -386,7 +396,7 @@ async function scanCmd(opts: CommonOpts & { migrationsDir?: string }) {
   try {
     conn = await buildConnection({ ...opts, mode: "read-only" });
     const sp = ora("introspecting").start();
-    const snapshot = await conn.withClient((c) => introspect(c));
+    const snapshot = await conn.withClient((c) => introspect(c, introspectOpts(opts)));
     sp.succeed(`introspected ${snapshot.tables.length} tables`);
 
     const findings: Finding[] = [];
@@ -457,6 +467,8 @@ const dbOpt = (cmd: Command) =>
       "fail threshold. a severity (high) or per-category (default=high,rls=medium,schema=low). default: high",
     )
     .option("--config <file>", "path to jimmy.config.json (auto-discovered otherwise)")
+    .option("--include-schema <name>", "only introspect these schemas (repeat for multiple)", (v: string, p: string[] = []) => [...p, v], [])
+    .option("--exclude-schema <name>", "skip these schemas (repeat for multiple)", (v: string, p: string[] = []) => [...p, v], [])
     .option("--baseline <file>", "suppress findings present in this baseline file")
     .option("--update-baseline", "write the current findings as the new baseline", false)
     .option("--diff", "with --baseline, report only newly introduced findings", false)
@@ -559,7 +571,7 @@ async function suggestCmd(opts: CommonOpts) {
   let conn: Awaited<ReturnType<typeof buildConnection>> | null = null;
   try {
     conn = await buildConnection({ ...opts, mode: "read-only" });
-    const snapshot = await conn.withClient((c) => introspect(c));
+    const snapshot = await conn.withClient((c) => introspect(c, introspectOpts(opts)));
     const findings = proposeProperties(snapshot);
     if (!opts.quiet) {
       console.log(chalk.bold("\n  suggested checks (derived from your schema)\n"));
@@ -584,7 +596,7 @@ async function prismaCmd(opts: CommonOpts & { schema?: string }) {
     if (!opts.schema) throw new Error("--schema <schema.prisma> is required");
     const text = readFileSync(opts.schema, "utf-8");
     conn = await buildConnection({ ...opts, mode: "read-only" });
-    const snapshot = await conn.withClient((c) => introspect(c));
+    const snapshot = await conn.withClient((c) => introspect(c, introspectOpts(opts)));
     const findings = crossCheckPrisma(text, snapshot);
     finalize(findings, opts, "jimmy-prisma", "jimmy: prisma cross-check", conn.shape.database);
   } catch (e) {
@@ -600,7 +612,7 @@ async function snapshotCmd(opts: CommonOpts & { out?: string }) {
   let conn: Awaited<ReturnType<typeof buildConnection>> | null = null;
   try {
     conn = await buildConnection({ ...opts, mode: "read-only" });
-    const snapshot = await conn.withClient((c) => introspect(c));
+    const snapshot = await conn.withClient((c) => introspect(c, introspectOpts(opts)));
     const out = opts.out ?? "jimmy-snapshot.json";
     writeFileSync(out, JSON.stringify(snapshot, null, 2));
     l.ok(`wrote schema snapshot (${snapshot.tables.length} tables, ${snapshot.policies.length} policies) to ${out}`);
@@ -618,7 +630,7 @@ async function regressCmd(opts: CommonOpts & { against?: string }) {
     if (!opts.against) throw new Error("--against <snapshot.json> is required");
     const before = JSON.parse(readFileSync(opts.against, "utf-8")) as SchemaSnapshot;
     conn = await buildConnection({ ...opts, mode: "read-only" });
-    const after = await conn.withClient((c) => introspect(c));
+    const after = await conn.withClient((c) => introspect(c, introspectOpts(opts)));
     const findings = diffSnapshots(before, after);
     finalize(findings, opts, "jimmy-regress", "jimmy: schema regression", conn.shape.database);
   } catch (e) {

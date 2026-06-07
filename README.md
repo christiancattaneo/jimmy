@@ -247,6 +247,16 @@ DROP TABLE legacy_events;
 a directive attaches to the next statement (blank and comment lines in between
 are fine) or to a statement on its own line as a trailing comment.
 
+### scoping to schemas
+
+by default jimmy introspects user schemas and skips the supabase internals. scope
+explicitly with repeatable flags:
+
+```bash
+jimmy scan --db $DATABASE_URL --include-schema public --include-schema billing
+jimmy schema --db $DATABASE_URL --exclude-schema legacy
+```
+
 ### config file
 
 drop a `jimmy.config.json` (or `.jimmyrc.json`) in the project root, or point at
