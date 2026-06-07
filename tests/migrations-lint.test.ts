@@ -104,6 +104,18 @@ describe("migration linter rules", () => {
     expect(r.find((f) => f.ruleId === "migration.partitioned-index")).toBeDefined();
   });
 
+  it("flags ON DELETE SET DEFAULT foreign keys", () => {
+    const r = lintSqlText("ALTER TABLE c ADD CONSTRAINT fk FOREIGN KEY (p) REFERENCES p(id) ON DELETE SET DEFAULT;", "f.sql");
+    expect(r.find((f) => f.ruleId === "migration.fk-set-default")).toBeDefined();
+  });
+
+  it("flags DISABLE TRIGGER ALL and session_replication_role = replica as restore-only", () => {
+    const a = lintSqlText("ALTER TABLE t DISABLE TRIGGER ALL;", "f.sql");
+    const b = lintSqlText("SET session_replication_role = 'replica';", "f.sql");
+    expect(a.find((f) => f.ruleId === "migration.unsafe-restore")).toBeDefined();
+    expect(b.find((f) => f.ruleId === "migration.unsafe-restore")).toBeDefined();
+  });
+
   it("does not flag a plain CREATE TABLE with inline CHECK or UNIQUE", () => {
     const r = lintSqlText("CREATE TABLE t (id int, x int CHECK (x > 0), email text UNIQUE);", "f.sql");
     expect(r.find((f) => f.ruleId === "migration.add-check-without-not-valid")).toBeUndefined();

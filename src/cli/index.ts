@@ -290,6 +290,12 @@ async function anomaliesCmd(opts: CommonOpts & { tests?: string; levels?: string
       const tag = r.observable ? chalk.red("OBSERVABLE") : chalk.green("safe");
       console.log(`  ${tag} ${r.anomaly} @ ${r.level}  ${chalk.gray(r.detail)}`);
     }
+    const rec = result.recommendedLevel;
+    console.log(
+      rec
+        ? `\n  recommended minimum isolation level for this workload: ${chalk.cyan(rec)}`
+        : `\n  ${chalk.red("no isolation level was fully safe for the probed anomalies (unexpected)")}`,
+    );
     finalize(result.findings, opts, "jimmy-anomalies", "jimmy: transaction anomalies", conn.shape.database);
   } catch (e) {
     sp.fail(coerceMsg(e));

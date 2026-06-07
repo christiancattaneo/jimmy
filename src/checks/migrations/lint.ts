@@ -224,6 +224,26 @@ const RULES: Rule[] = [
     test: (s) => /create\s+(unique\s+)?index\s+concurrently[^;]*\bon\s+only\b/i.test(s),
   },
   {
+    id: "migration.fk-set-default",
+    severity: "medium",
+    title: "Foreign key with ON DELETE/UPDATE SET DEFAULT",
+    description:
+      "ON DELETE SET DEFAULT silently rewrites child rows to a default value when a parent is removed. If the default is NULL or a non-existent key it can violate the constraint or orphan data semantically. Prefer explicit CASCADE/RESTRICT and confirm the default row exists.",
+    test: (s) =>
+      /references\b[^;]*on\s+(delete|update)\s+set\s+default/i.test(s) ||
+      /foreign\s+key[^;]*on\s+(delete|update)\s+set\s+default/i.test(s),
+  },
+  {
+    id: "migration.unsafe-restore",
+    severity: "low",
+    title: "Statement only safe at restore time",
+    description:
+      "ALTER TABLE ... DISABLE TRIGGER ALL and SET session_replication_role = replica disable integrity enforcement. They belong in a controlled restore, not a routine migration, where they can let bad data slip past FKs and triggers.",
+    test: (s) =>
+      /disable\s+trigger\s+all/i.test(s) ||
+      /set\s+session_replication_role\s*=\s*'?replica'?/i.test(s),
+  },
+  {
     id: "migration.drop-column",
     severity: "medium",
     title: "DROP COLUMN",

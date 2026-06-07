@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALL_ISOLATION_LEVELS, runAnomalyProbes } from "../src/checks/anomalies/probes.js";
+import { ALL_ISOLATION_LEVELS, runAnomalyProbes, recommendIsolationLevel, type ProbeResult } from "../src/checks/anomalies/probes.js";
 import { SafetyGuard, DEFAULT_SAFETY_CONFIG } from "../src/safety/index.js";
 
 describe("ALL_ISOLATION_LEVELS", () => {
@@ -31,5 +31,46 @@ describe("runAnomalyProbes test-schema guard", () => {
 
   it("rejects an over-long schema name", async () => {
     await expect(runAnomalyProbes(fakeConn, { testSchema: "a".repeat(64) })).rejects.toThrow(/unsafe/i);
+  });
+});
+
+describe("recommendIsolationLevel", () => {
+  function r(anomaly: string, level: string, observable: boolean): ProbeResult {
+    return { anomaly: anomaly as ProbeResult["anomaly"], level: level as ProbeResult["level"], observable, detail: "" };
+  }
+
+  it("recommends the lowest level with no observable anomaly (classic postgres)", () => {
+    const results: ProbeResult[] = [
+      r("write-skew", "READ COMMITTED", true),
+      r("write-skew", "REPEATABLE READ", true),
+      r("write-skew", "SERIALIZABLE", false),
+      r("lost-update", "READ COMMITTED", true),
+      r("lost-update", "REPEATABLE READ", false),
+      r("lost-update", "SERIALIZABLE", false),
+    ];
+    expect(recommendIsolationLevel(results)).toBe("SERIALIZABLE");
+  });
+
+  it("recommends READ COMMITTED when nothing is observable anywhere", () => {
+    const results: ProbeResult[] = [r("lost-update", "READ COMMITTED", false)];
+    expect(recommendIsolationLevel(results)).toBe("READ COMMITTED");
+  });
+
+  it("ignores the FOR UPDATE control probe", () => {
+    const results: ProbeResult[] = [
+      r("lost-update-for-update", "READ COMMITTED", true), // would never really happen
+      r("lost-update", "READ COMMITTED", false),
+    ];
+    // the control is ignored, so READ COMMITTED is still recommended
+    expect(recommendIsolationLevel(results)).toBe("READ COMMITTED");
+  });
+
+  it("returns null if even SERIALIZABLE shows an anomaly", () => {
+    const results: ProbeResult[] = [
+      r("write-skew", "READ COMMITTED", true),
+      r("write-skew", "REPEATABLE READ", true),
+      r("write-skew", "SERIALIZABLE", true),
+    ];
+    expect(recommendIsolationLevel(results)).toBeNull();
   });
 });

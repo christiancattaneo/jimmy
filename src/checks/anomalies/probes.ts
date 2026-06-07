@@ -37,6 +37,7 @@ export type AnomalyName =
   | "write-skew"
   | "read-skew"
   | "g2-item"
+  | "g2-predicate"
   | "phantom"
   | "lost-update-for-update";
 
@@ -395,11 +396,64 @@ async function probeLostUpdateForUpdate(
   });
 }
 
+/**
+ * G2 (anti-dependency cycle over a predicate, not a fixed item). Two
+ * transactions each read a predicate range, then each inserts a row that the
+ * other's predicate would have matched. Under anything below SERIALIZABLE the
+ * two inserts both commit, producing a non-serializable history; SERIALIZABLE
+ * aborts one.
+ */
+async function probeG2Predicate(
+  conn: JimmyConnection,
+  schema: string,
+  level: IsolationLevel,
+): Promise<ProbeResult> {
+  return withTwoClients(conn, async (a, b) => {
+    await reseed(a, schema, [[1, 10, "p"]]);
+    await a.query(`BEGIN ISOLATION LEVEL ${level}`);
+    await b.query(`BEGIN ISOLATION LEVEL ${level}`);
+    let aResult: { aborted: boolean } = { aborted: false };
+    let bResult: { aborted: boolean } = { aborted: false };
+    try {
+      // both read the same predicate (rows with val between 0 and 100)
+      await a.query(`SELECT count(*) FROM ${schema}.kv WHERE val BETWEEN 0 AND 100`);
+      await b.query(`SELECT count(*) FROM ${schema}.kv WHERE val BETWEEN 0 AND 100`);
+      try {
+        await a.query(`INSERT INTO ${schema}.kv (id, val, tag) VALUES (100, 50, 'p')`);
+        await a.query("COMMIT");
+      } catch {
+        await a.query("ROLLBACK").catch(() => undefined);
+        aResult = { aborted: true };
+      }
+      try {
+        await b.query(`INSERT INTO ${schema}.kv (id, val, tag) VALUES (200, 60, 'p')`);
+        await b.query("COMMIT");
+      } catch {
+        await b.query("ROLLBACK").catch(() => undefined);
+        bResult = { aborted: true };
+      }
+    } finally {
+      await a.query("ROLLBACK").catch(() => undefined);
+      await b.query("ROLLBACK").catch(() => undefined);
+    }
+    const bothCommitted = !aResult.aborted && !bResult.aborted;
+    return {
+      anomaly: "g2-predicate",
+      level,
+      observable: bothCommitted,
+      detail: bothCommitted
+        ? "both predicate-dependent inserts committed (non-serializable history)"
+        : "prevented; one transaction aborted",
+    };
+  });
+}
+
 const PROBES: Record<AnomalyName, (c: JimmyConnection, s: string, l: IsolationLevel) => Promise<ProbeResult>> = {
   "lost-update": probeLostUpdate,
   "read-skew": probeReadSkew,
   "write-skew": probeWriteSkew,
   "g2-item": probeG2Item,
+  "g2-predicate": probeG2Predicate,
   phantom: probePhantom,
   "lost-update-for-update": probeLostUpdateForUpdate,
 };
@@ -407,6 +461,24 @@ const PROBES: Record<AnomalyName, (c: JimmyConnection, s: string, l: IsolationLe
 export interface AnomaliesResult {
   results: ProbeResult[];
   findings: Finding[];
+  /**
+   * The minimum isolation level at which none of the probed anomalies were
+   * observable on this engine, or null if even SERIALIZABLE showed one (which
+   * would indicate a broken engine or an unexpected workload).
+   */
+  recommendedLevel: IsolationLevel | null;
+}
+
+/** Lowest level at which every probed anomaly came back not-observable. */
+export function recommendIsolationLevel(results: ProbeResult[]): IsolationLevel | null {
+  // Exclude the FOR UPDATE control: it is expected safe everywhere and is not
+  // an isolation-level signal.
+  const relevant = results.filter((r) => r.anomaly !== "lost-update-for-update");
+  for (const level of ALL_ISOLATION_LEVELS) {
+    const anyObservable = relevant.some((r) => r.level === level && r.observable);
+    if (!anyObservable) return level;
+  }
+  return null;
 }
 
 export async function runAnomalyProbes(
@@ -446,7 +518,7 @@ export async function runAnomalyProbes(
   }
 
   const findings = anomaliesToFindings(results);
-  return { results, findings };
+  return { results, findings, recommendedLevel: recommendIsolationLevel(results) };
 }
 
 function anomaliesToFindings(results: ProbeResult[]): Finding[] {
@@ -456,6 +528,7 @@ function anomaliesToFindings(results: ProbeResult[]): Finding[] {
     "read-skew": "REPEATABLE READ",
     "write-skew": "SERIALIZABLE",
     "g2-item": "SERIALIZABLE",
+    "g2-predicate": "SERIALIZABLE",
     phantom: "REPEATABLE READ",
     // The FOR UPDATE control should be safe everywhere; if it is observable at
     // READ COMMITTED that is a genuine engine problem, hence the floor is the
@@ -490,6 +563,8 @@ function describeAnomaly(name: AnomalyName): string {
       return "Two transactions read overlapping rows, each writes a disjoint row, and together they violate a predicate that held under the read snapshot.";
     case "g2-item":
       return "An anti-dependency cycle between two transactions produces a non-serializable history.";
+    case "g2-predicate":
+      return "A predicate-based anti-dependency cycle: two transactions each insert a row the other's predicate would have matched.";
     case "phantom":
       return "A predicate query returns a different set of rows when re-run inside the same transaction because a concurrent insert committed.";
     case "lost-update-for-update":

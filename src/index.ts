@@ -48,6 +48,7 @@ export {
 } from "./checks/migrations/lint.js";
 export {
   runAnomalyProbes,
+  recommendIsolationLevel,
   ALL_ISOLATION_LEVELS,
   type AnomaliesOptions,
   type AnomaliesResult,
