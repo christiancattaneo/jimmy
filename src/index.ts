@@ -42,6 +42,7 @@ export { auditSchema, type SchemaAuditOptions } from "./checks/schema/audit.js";
 export { auditPii } from "./checks/pii/audit.js";
 export { auditIndexes, type IndexAuditOptions, type IndexAuditResult } from "./checks/indexes/audit.js";
 export { diffSnapshots } from "./checks/regression/diff.js";
+export { crossCheckPrisma, parsePrismaSchema } from "./checks/orm/prisma.js";
 export { redactFindings, redactSql } from "./report/redact.js";
 export {
   lintSqlText,

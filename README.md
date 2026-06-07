@@ -118,6 +118,16 @@ jimmy snapshot --db $DATABASE_URL --out schema.snapshot.json   # commit this
 jimmy regress --db $DATABASE_URL --against schema.snapshot.json # in CI
 ```
 
+### orm cross-check (prisma)
+
+compare a `schema.prisma` against the live database and flag drift: a model with
+no table, a field with no column, or a nullability mismatch (prisma treats a
+column as required that the database allows to be null).
+
+```bash
+jimmy prisma --db $DATABASE_URL --schema prisma/schema.prisma
+```
+
 ### explain a rule
 
 ```bash

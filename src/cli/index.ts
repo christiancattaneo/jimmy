@@ -23,6 +23,7 @@ import { auditSchema } from "../checks/schema/audit.js";
 import { auditPii } from "../checks/pii/audit.js";
 import { auditIndexes } from "../checks/indexes/audit.js";
 import { diffSnapshots } from "../checks/regression/diff.js";
+import { crossCheckPrisma } from "../checks/orm/prisma.js";
 import { readFileSync } from "node:fs";
 import type { SchemaSnapshot } from "../db/introspect.js";
 import { lintFile, lintDirectory } from "../checks/migrations/lint-fs.js";
@@ -535,6 +536,31 @@ dbOpt(
     .option("--against <file>", "baseline snapshot to compare against")
     .action(regressCmd),
 );
+
+dbOpt(
+  program
+    .command("prisma")
+    .description("cross-check a schema.prisma against the live database (drift, nullability)")
+    .option("--schema <file>", "path to schema.prisma")
+    .action(prismaCmd),
+);
+
+async function prismaCmd(opts: CommonOpts & { schema?: string }) {
+  printBanner(opts.quiet);
+  let conn: Awaited<ReturnType<typeof buildConnection>> | null = null;
+  try {
+    if (!opts.schema) throw new Error("--schema <schema.prisma> is required");
+    const text = readFileSync(opts.schema, "utf-8");
+    conn = await buildConnection({ ...opts, mode: "read-only" });
+    const snapshot = await conn.withClient((c) => introspect(c));
+    const findings = crossCheckPrisma(text, snapshot);
+    finalize(findings, opts, "jimmy-prisma", "jimmy: prisma cross-check", conn.shape.database);
+  } catch (e) {
+    handleError(e);
+  } finally {
+    if (conn) await conn.end();
+  }
+}
 
 async function snapshotCmd(opts: CommonOpts & { out?: string }) {
   printBanner(opts.quiet);
