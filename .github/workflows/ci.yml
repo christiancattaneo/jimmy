@@ -25,7 +25,9 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_PASSWORD: postgres
+          # Ephemeral CI service container, localhost only: use trust auth so
+          # no credentials appear anywhere in the repo.
+          POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: jimmy_test
         ports:
           - 5432:5432
@@ -35,7 +37,7 @@ jobs:
           --health-timeout 3s
           --health-retries 20
     env:
-      JIMMY_TEST_DB: postgres://postgres:postgres@localhost:5432/jimmy_test
+      JIMMY_TEST_DB: postgres://postgres@localhost:5432/jimmy_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -45,7 +47,7 @@ jobs:
       - run: npm ci
       - name: create supabase-like roles
         run: |
-          PGPASSWORD=postgres psql -h localhost -U postgres -d jimmy_test -v ON_ERROR_STOP=1 <<'SQL'
+          psql -h localhost -U postgres -d jimmy_test -v ON_ERROR_STOP=1 <<'SQL'
           DO $$ BEGIN
             IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon NOLOGIN; END IF;
             IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;

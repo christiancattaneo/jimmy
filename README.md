@@ -258,7 +258,7 @@ throwaway docker:
 
 ```bash
 docker compose -f docker-compose.test.yml up -d
-JIMMY_TEST_DB=postgres://postgres:postgres@localhost:55432/jimmy_test npm run test:integration
+JIMMY_TEST_DB=postgres://postgres@localhost:55432/jimmy_test npm run test:integration
 docker compose -f docker-compose.test.yml down -v
 ```
 

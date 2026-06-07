@@ -1,7 +1,7 @@
 # Throwaway Postgres for jimmy's integration tests.
 #
 #   docker compose -f docker-compose.test.yml up -d
-#   JIMMY_TEST_DB=postgres://postgres:postgres@localhost:55432/jimmy_test npm run test:integration
+#   JIMMY_TEST_DB=postgres://postgres@localhost:55432/jimmy_test npm run test:integration
 #   docker compose -f docker-compose.test.yml down -v
 #
 # Port 55432 avoids colliding with a local Postgres on 5432. The container is
@@ -10,7 +10,8 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_PASSWORD: postgres
+      # Throwaway local container: trust auth, no credentials to leak.
+      POSTGRES_HOST_AUTH_METHOD: trust
       POSTGRES_DB: jimmy_test
     ports:
       - "55432:5432"
