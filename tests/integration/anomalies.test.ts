@@ -30,6 +30,17 @@ maybe("anomaly probes (integration)", () => {
       // (first-updater-wins aborts the loser; snapshot keeps reads consistent).
       expect(find(results, "lost-update", "REPEATABLE READ").observable).toBe(false);
       expect(find(results, "read-skew", "REPEATABLE READ").observable).toBe(false);
+
+      // Phantom: visible at READ COMMITTED, prevented by snapshot isolation at RR+.
+      expect(find(results, "phantom", "READ COMMITTED").observable).toBe(true);
+      expect(find(results, "phantom", "REPEATABLE READ").observable).toBe(false);
+      expect(find(results, "phantom", "SERIALIZABLE").observable).toBe(false);
+
+      // Control: SELECT FOR UPDATE must prevent lost update at EVERY level,
+      // including READ COMMITTED. If this ever trips, the engine is broken.
+      for (const level of ["READ COMMITTED", "REPEATABLE READ", "SERIALIZABLE"] as const) {
+        expect(find(results, "lost-update-for-update", level).observable).toBe(false);
+      }
     } finally {
       await conn.end();
     }

@@ -32,7 +32,13 @@ export const ALL_ISOLATION_LEVELS: IsolationLevel[] = [
   "SERIALIZABLE",
 ];
 
-export type AnomalyName = "lost-update" | "write-skew" | "read-skew" | "g2-item";
+export type AnomalyName =
+  | "lost-update"
+  | "write-skew"
+  | "read-skew"
+  | "g2-item"
+  | "phantom"
+  | "lost-update-for-update";
 
 export interface ProbeResult {
   anomaly: AnomalyName;
@@ -302,11 +308,97 @@ async function probeG2Item(
   });
 }
 
+/**
+ * Phantom read (A3). Transaction A runs a predicate query twice; concurrently
+ * B inserts a row matching the predicate and commits. Under snapshot isolation
+ * the second read should match the first; under READ COMMITTED a phantom
+ * appears.
+ */
+async function probePhantom(
+  conn: JimmyConnection,
+  schema: string,
+  level: IsolationLevel,
+): Promise<ProbeResult> {
+  return withTwoClients(conn, async (a, b) => {
+    await reseed(a, schema, [[1, 100, "acct"]]);
+    let observable = false;
+    let detail = "";
+    await a.query(`BEGIN ISOLATION LEVEL ${level}`);
+    try {
+      const r1 = await a.query(`SELECT count(*)::int AS c FROM ${schema}.kv WHERE tag = 'acct'`);
+      const c1 = ((r1.rows[0] as { c: number } | undefined)?.c) ?? 0;
+      const txnB = await inTx(b, level, async () => {
+        await b.query(`INSERT INTO ${schema}.kv (id, val, tag) VALUES (2, 200, 'acct')`);
+      });
+      const r2 = await a.query(`SELECT count(*)::int AS c FROM ${schema}.kv WHERE tag = 'acct'`);
+      const c2 = ((r2.rows[0] as { c: number } | undefined)?.c) ?? 0;
+      observable = !txnB.aborted && c2 !== c1;
+      detail = `tx A counted ${c1} then ${c2} rows matching the predicate`;
+    } finally {
+      await a.query("COMMIT").catch(() => undefined);
+    }
+    return { anomaly: "phantom", level, observable, detail };
+  });
+}
+
+/**
+ * Control probe: the same lost-update workload, but the reads use
+ * SELECT ... FOR UPDATE. This must prevent lost update at every level,
+ * including READ COMMITTED. If it does NOT (observable === true), something is
+ * very wrong with the engine's row locking; if it does (observable === false),
+ * it confirms the recommended fix works on this database.
+ */
+async function probeLostUpdateForUpdate(
+  conn: JimmyConnection,
+  schema: string,
+  level: IsolationLevel,
+): Promise<ProbeResult> {
+  return withTwoClients(conn, async (a, b) => {
+    await reseed(a, schema, [[1, 10, "x"]]);
+    await a.query(`BEGIN ISOLATION LEVEL ${level}`);
+    await b.query(`BEGIN ISOLATION LEVEL ${level}`);
+    let bAborted = false;
+    try {
+      // A locks the row first.
+      const ar = await a.query(`SELECT val FROM ${schema}.kv WHERE id = 1 FOR UPDATE`);
+      const aVal = ((ar.rows[0] as { val: number } | undefined)?.val) ?? 0;
+      // B's locking read will block on A; run A's write+commit, then B proceeds.
+      const bPromise = b
+        .query(`SELECT val FROM ${schema}.kv WHERE id = 1 FOR UPDATE`)
+        .then(async (br) => {
+          const bVal = ((br.rows[0] as { val: number } | undefined)?.val) ?? 0;
+          await b.query(`UPDATE ${schema}.kv SET val = $1 WHERE id = 1`, [bVal + 1]);
+          await b.query("COMMIT");
+        })
+        .catch(async () => {
+          await b.query("ROLLBACK").catch(() => undefined);
+          bAborted = true;
+        });
+      await a.query(`UPDATE ${schema}.kv SET val = $1 WHERE id = 1`, [aVal + 1]);
+      await a.query("COMMIT");
+      await bPromise;
+    } finally {
+      await a.query("ROLLBACK").catch(() => undefined);
+      await b.query("ROLLBACK").catch(() => undefined);
+    }
+    const final = await a.query(`SELECT val FROM ${schema}.kv WHERE id = 1`);
+    const finalVal = ((final.rows[0] as { val: number } | undefined)?.val) ?? 0;
+    // With FOR UPDATE serializing the two increments, the result must be 12.
+    const observable = !bAborted && finalVal !== 12;
+    const detail = bAborted
+      ? `tx B aborted; final value ${finalVal}`
+      : `final value ${finalVal} (expected 12 with SELECT FOR UPDATE serializing both increments)`;
+    return { anomaly: "lost-update-for-update", level, observable, detail };
+  });
+}
+
 const PROBES: Record<AnomalyName, (c: JimmyConnection, s: string, l: IsolationLevel) => Promise<ProbeResult>> = {
   "lost-update": probeLostUpdate,
   "read-skew": probeReadSkew,
   "write-skew": probeWriteSkew,
   "g2-item": probeG2Item,
+  phantom: probePhantom,
+  "lost-update-for-update": probeLostUpdateForUpdate,
 };
 
 export interface AnomaliesResult {
@@ -353,6 +445,11 @@ function anomaliesToFindings(results: ProbeResult[]): Finding[] {
     "read-skew": "REPEATABLE READ",
     "write-skew": "SERIALIZABLE",
     "g2-item": "SERIALIZABLE",
+    phantom: "REPEATABLE READ",
+    // The FOR UPDATE control should be safe everywhere; if it is observable at
+    // READ COMMITTED that is a genuine engine problem, hence the floor is the
+    // lowest level.
+    "lost-update-for-update": "READ COMMITTED",
   };
   for (const r of results) {
     if (!r.observable) continue;
@@ -382,6 +479,10 @@ function describeAnomaly(name: AnomalyName): string {
       return "Two transactions read overlapping rows, each writes a disjoint row, and together they violate a predicate that held under the read snapshot.";
     case "g2-item":
       return "An anti-dependency cycle between two transactions produces a non-serializable history.";
+    case "phantom":
+      return "A predicate query returns a different set of rows when re-run inside the same transaction because a concurrent insert committed.";
+    case "lost-update-for-update":
+      return "Even with SELECT ... FOR UPDATE, two read-modify-write cycles lost an update. This indicates the engine's row locking is not serializing the writes as expected.";
   }
 }
 

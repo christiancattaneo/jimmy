@@ -109,6 +109,8 @@ each probe runs the canonical hermitage workload at every isolation level the da
 - **read skew (G-single)**: a transaction reads two rows that should be related, sees them at different points in time
 - **write skew (G2-item)**: two transactions read overlapping rows, write disjoint rows, and break a database-wide invariant
 - **anti-dependency cycle (G2)**: same as above but with predicates instead of items
+- **phantom (A3)**: a predicate query returns a different row set when re-run because a concurrent insert committed
+- **lost-update-for-update**: a control probe. runs the lost-update workload with `SELECT ... FOR UPDATE` and asserts it is prevented at every level, including read committed. proves the standard fix works on this engine
 
 jimmy reports which anomaly is observable at which isolation level and recommends the minimum level needed to prevent it.
 
