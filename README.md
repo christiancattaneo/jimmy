@@ -102,6 +102,13 @@ jimmy nplusone --db $DATABASE_URL --threshold 5
 jimmy nplusone --log queries.log
 ```
 
+### explain a rule
+
+```bash
+jimmy explain rls.permissive-true   # what it means, why it matters, how to fix
+jimmy explain --list                # every documented rule
+```
+
 ## safety
 
 databases are precious. jimmy is paranoid by default.

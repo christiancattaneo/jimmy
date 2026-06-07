@@ -95,3 +95,4 @@ export {
   type Severity,
   type CheckCategory,
 } from "./report/findings.js";
+export { CATALOG, explainRule, listRules, type RuleDoc } from "./report/catalog.js";

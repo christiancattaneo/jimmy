@@ -27,6 +27,7 @@ import { detectNplusOne, pgStatStatementsAvailable, readPgStatStatements, readQu
 import { buildReport, reportToJson, reportToMarkdown, reportToSarif } from "../report/generate.js";
 import { anyFails, parseFailOn, type Finding, type Severity } from "../report/findings.js";
 import { applyBaseline, readBaseline, writeBaseline } from "../report/baseline.js";
+import { explainRule, listRules } from "../report/catalog.js";
 import { existsSync } from "node:fs";
 
 const program = new Command();
@@ -439,6 +440,33 @@ dbOpt(
     .option("--migrations-dir <dir>", "include migrations linting")
     .action(scanCmd),
 );
+
+program
+  .command("explain")
+  .description("explain a rule by id, or list all rules with --list")
+  .argument("[ruleId]", "the rule id, e.g. rls.permissive-true")
+  .option("--list", "list every documented rule", false)
+  .action((ruleId: string | undefined, opts: { list?: boolean }) => {
+    if (opts.list || !ruleId) {
+      console.log(chalk.bold("\n  jimmy rules\n"));
+      for (const r of listRules()) {
+        console.log(`  ${chalk.cyan(r.id.padEnd(34))} ${chalk.gray(`[${r.severity}]`)} ${r.summary}`);
+      }
+      console.log(chalk.gray(`\n  run: jimmy explain <ruleId> for the why and the fix\n`));
+      return;
+    }
+    const doc = explainRule(ruleId);
+    if (!doc) {
+      console.log(chalk.red(`[error] unknown rule "${ruleId}". try: jimmy explain --list`));
+      process.exit(1);
+    }
+    console.log(chalk.bold(`\n  ${doc.id}`) + chalk.gray(`  [${doc.severity}]`));
+    console.log(`\n  ${doc.summary}`);
+    console.log(chalk.bold(`\n  why`));
+    console.log(`  ${doc.why}`);
+    console.log(chalk.bold(`\n  fix`));
+    console.log(`  ${doc.fix}\n`);
+  });
 
 process.on("unhandledRejection", (reason) => {
   if (reason instanceof SafetyViolationError) {
