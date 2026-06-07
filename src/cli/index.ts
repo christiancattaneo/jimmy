@@ -24,6 +24,7 @@ import { auditPii } from "../checks/pii/audit.js";
 import { auditIndexes } from "../checks/indexes/audit.js";
 import { diffSnapshots } from "../checks/regression/diff.js";
 import { crossCheckPrisma } from "../checks/orm/prisma.js";
+import { proposeProperties } from "../checks/suggest/propose.js";
 import { readFileSync } from "node:fs";
 import type { SchemaSnapshot } from "../db/introspect.js";
 import { lintFile, lintDirectory } from "../checks/migrations/lint-fs.js";
@@ -544,6 +545,37 @@ dbOpt(
     .option("--schema <file>", "path to schema.prisma")
     .action(prismaCmd),
 );
+
+dbOpt(
+  program
+    .command("suggest")
+    .description("propose the highest-value checks to run, derived from your schema")
+    .action(suggestCmd),
+);
+
+async function suggestCmd(opts: CommonOpts) {
+  printBanner(opts.quiet);
+  const l = log(opts.verbose ?? false);
+  let conn: Awaited<ReturnType<typeof buildConnection>> | null = null;
+  try {
+    conn = await buildConnection({ ...opts, mode: "read-only" });
+    const snapshot = await conn.withClient((c) => introspect(c));
+    const findings = proposeProperties(snapshot);
+    if (!opts.quiet) {
+      console.log(chalk.bold("\n  suggested checks (derived from your schema)\n"));
+      for (const f of findings) {
+        console.log(`  ${chalk.cyan(f.title)}`);
+        console.log(`    ${chalk.gray(f.description)}`);
+        console.log(`    ${chalk.green(f.remediation ?? "")}\n`);
+      }
+    }
+    finalize(findings, opts, "jimmy-suggest", "jimmy: suggested properties", conn.shape.database);
+  } catch (e) {
+    handleError(e);
+  } finally {
+    if (conn) await conn.end();
+  }
+}
 
 async function prismaCmd(opts: CommonOpts & { schema?: string }) {
   printBanner(opts.quiet);

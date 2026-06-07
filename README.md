@@ -128,6 +128,18 @@ column as required that the database allows to be null).
 jimmy prisma --db $DATABASE_URL --schema prisma/schema.prisma
 ```
 
+### suggest checks
+
+let the schema tell you what to test. `suggest` proposes the highest-value
+checks, each as a concrete command, derived deterministically from the schema
+(tenant tables to fuzz, money columns to test for lost updates, definer
+functions to audit). the verdict still comes from the deterministic checks; the
+suggester only chooses where to point them.
+
+```bash
+jimmy suggest --db $DATABASE_URL
+```
+
 ### explain a rule
 
 ```bash
