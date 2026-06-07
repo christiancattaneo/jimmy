@@ -41,7 +41,8 @@ function log(verbose: boolean) {
   };
 }
 
-function printBanner(): void {
+function printBanner(quiet?: boolean): void {
+  if (quiet) return;
   console.log(chalk.bold("\n  jimmy"));
   console.log(chalk.gray("  pries open the database the application thinks is locked\n"));
 }
@@ -56,6 +57,7 @@ interface CommonOpts {
   mode?: SafetyMode;
   baseline?: string;
   updateBaseline?: boolean;
+  quiet?: boolean;
 }
 
 function buildGuard(opts: CommonOpts): SafetyGuard {
@@ -129,6 +131,20 @@ function finalize(
 
   const out = opts.output ?? defaultOut;
   const paths = saveReport(findings, out, target, title);
+  const spec = parseFailOn(opts.failOn ? String(opts.failOn) : "high");
+  const fails = anyFails(effective, spec);
+
+  if (opts.quiet) {
+    // One machine-friendly line, then the exit code does the talking.
+    const counts: Record<Severity, number> = { info: 0, low: 0, medium: 0, high: 0, critical: 0 };
+    for (const f of effective) counts[f.severity]++;
+    console.log(
+      `jimmy: ${effective.length} findings (critical=${counts.critical} high=${counts.high} medium=${counts.medium} low=${counts.low}) -> ${paths.json}`,
+    );
+    if (fails) process.exit(2);
+    return;
+  }
+
   l.ok(`wrote ${paths.md} and ${paths.json}`);
   if (baselinedCount > 0) l.info(`${baselinedCount} findings suppressed by baseline`);
   if (resolvedCount > 0) l.info(`${resolvedCount} baselined findings are now resolved (consider --update-baseline)`);
@@ -138,12 +154,11 @@ function finalize(
     console.log(`  new (after baseline): ${effective.length}\n`);
   }
 
-  const spec = parseFailOn(opts.failOn ? String(opts.failOn) : "high");
-  if (anyFails(effective, spec)) process.exit(2);
+  if (fails) process.exit(2);
 }
 
 async function rlsAuditCmd(opts: CommonOpts) {
-  printBanner();
+  printBanner(opts.quiet);
   const l = log(opts.verbose ?? false);
   const sp = ora("introspecting schema").start();
   let conn: Awaited<ReturnType<typeof buildConnection>> | null = null;
@@ -167,7 +182,7 @@ async function rlsAuditCmd(opts: CommonOpts) {
 }
 
 async function rlsFuzzCmd(opts: CommonOpts & { roles?: string; maxTables?: number }) {
-  printBanner();
+  printBanner(opts.quiet);
   const l = log(opts.verbose ?? false);
   const sp = ora("introspecting").start();
   let conn: Awaited<ReturnType<typeof buildConnection>> | null = null;
@@ -193,7 +208,7 @@ async function rlsFuzzCmd(opts: CommonOpts & { roles?: string; maxTables?: numbe
 }
 
 async function schemaCmd(opts: CommonOpts) {
-  printBanner();
+  printBanner(opts.quiet);
   const l = log(opts.verbose ?? false);
   const sp = ora("auditing schema").start();
   let conn: Awaited<ReturnType<typeof buildConnection>> | null = null;
@@ -214,7 +229,7 @@ async function schemaCmd(opts: CommonOpts) {
 async function migrationsCmd(
   opts: CommonOpts & { file?: string; dir?: string },
 ) {
-  printBanner();
+  printBanner(opts.quiet);
   if (!opts.file && !opts.dir) {
     console.log(chalk.red("[error] --file or --dir required"));
     process.exit(1);
@@ -233,7 +248,7 @@ async function migrationsCmd(
 }
 
 async function anomaliesCmd(opts: CommonOpts & { tests?: string; levels?: string }) {
-  printBanner();
+  printBanner(opts.quiet);
   const l = log(opts.verbose ?? false);
   const sp = ora("running anomaly probes").start();
   let conn: Awaited<ReturnType<typeof buildConnection>> | null = null;
@@ -261,7 +276,7 @@ async function anomaliesCmd(opts: CommonOpts & { tests?: string; levels?: string
 }
 
 async function nplusoneCmd(opts: CommonOpts & { threshold?: number; log?: string }) {
-  printBanner();
+  printBanner(opts.quiet);
   const l = log(opts.verbose ?? false);
   const sp = ora("collecting query stats").start();
   try {
@@ -292,7 +307,7 @@ async function nplusoneCmd(opts: CommonOpts & { threshold?: number; log?: string
 }
 
 async function scanCmd(opts: CommonOpts & { migrationsDir?: string }) {
-  printBanner();
+  printBanner(opts.quiet);
   const l = log(opts.verbose ?? false);
   let conn: Awaited<ReturnType<typeof buildConnection>> | null = null;
   try {
@@ -369,6 +384,7 @@ const dbOpt = (cmd: Command) =>
     )
     .option("--baseline <file>", "suppress findings present in this baseline file")
     .option("--update-baseline", "write the current findings as the new baseline", false)
+    .option("--quiet", "minimal output for CI (one summary line, exit code)", false)
     .option("--allow-host <host>", "host allowlist (repeat for multiple)", (v: string, p: string[] = []) => [...p, v], [])
     .option("--i-know-what-im-doing", "override safety guards (do not use)", false);
 
@@ -395,6 +411,7 @@ mig
   .option("--fail-on <spec>", "fail threshold: severity or per-category (default=high,migrations=medium)", "high")
   .option("--baseline <file>", "suppress findings present in this baseline file")
   .option("--update-baseline", "write the current findings as the new baseline", false)
+  .option("--quiet", "minimal output for CI (one summary line, exit code)", false)
   .action(migrationsCmd);
 
 dbOpt(

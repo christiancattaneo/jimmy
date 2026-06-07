@@ -89,6 +89,21 @@ describe("migration linter rules", () => {
     expect(r.find((f) => f.ruleId === "migration.add-unique-constraint")).toBeUndefined();
   });
 
+  it("flags ADD COLUMN with a volatile default (table rewrite)", () => {
+    const r = lintSqlText("ALTER TABLE t ADD COLUMN uid uuid DEFAULT gen_random_uuid();", "f.sql");
+    expect(r.find((f) => f.ruleId === "migration.volatile-default")).toBeDefined();
+  });
+
+  it("does not flag ADD COLUMN with a constant default", () => {
+    const r = lintSqlText("ALTER TABLE t ADD COLUMN n int DEFAULT 0;", "f.sql");
+    expect(r.find((f) => f.ruleId === "migration.volatile-default")).toBeUndefined();
+  });
+
+  it("flags CREATE INDEX CONCURRENTLY ON ONLY (partitioned parent)", () => {
+    const r = lintSqlText("CREATE INDEX CONCURRENTLY idx ON ONLY parent (a);", "f.sql");
+    expect(r.find((f) => f.ruleId === "migration.partitioned-index")).toBeDefined();
+  });
+
   it("does not flag a plain CREATE TABLE with inline CHECK or UNIQUE", () => {
     const r = lintSqlText("CREATE TABLE t (id int, x int CHECK (x > 0), email text UNIQUE);", "f.sql");
     expect(r.find((f) => f.ruleId === "migration.add-check-without-not-valid")).toBeUndefined();

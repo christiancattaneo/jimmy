@@ -207,6 +207,23 @@ const RULES: Rule[] = [
       !/using\s+index/i.test(s),
   },
   {
+    id: "migration.volatile-default",
+    severity: "medium",
+    title: "ADD COLUMN with a volatile DEFAULT",
+    description:
+      "Adding a column whose default is a volatile function (random(), gen_random_uuid(), clock_timestamp()) forces a full table rewrite to materialize a distinct value per row, unlike a constant default which is metadata-only on modern Postgres. Backfill in batches instead.",
+    test: (s) =>
+      /alter\s+table\s+[^;]*add\s+column[^;]*default\s+[^;]*(random\s*\(|gen_random_uuid\s*\(|uuid_generate_v\d\s*\(|clock_timestamp\s*\()/i.test(s),
+  },
+  {
+    id: "migration.partitioned-index",
+    severity: "medium",
+    title: "CREATE INDEX on a partitioned table",
+    description:
+      "Creating an index on a partitioned table is not supported with CONCURRENTLY. Create the index on each partition CONCURRENTLY, then attach, or create it ONLY on the parent and build children separately to avoid a long lock.",
+    test: (s) => /create\s+(unique\s+)?index\s+concurrently[^;]*\bon\s+only\b/i.test(s),
+  },
+  {
     id: "migration.drop-column",
     severity: "medium",
     title: "DROP COLUMN",
