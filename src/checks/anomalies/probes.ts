@@ -412,6 +412,14 @@ export async function runAnomalyProbes(
 ): Promise<AnomaliesResult> {
   conn.guard.assertMutation(conn.shape);
   const schema = opts.testSchema ?? `${DEFAULT_TEST_SCHEMA}_${randomUUID().replace(/-/g, "").slice(0, 8)}`;
+  // The schema name is interpolated raw into DDL, so it must be a plain
+  // identifier. Reject anything that could carry SQL (defends the library API,
+  // where a caller could pass a hostile testSchema).
+  if (!/^[a-z_][a-z0-9_]{0,62}$/i.test(schema)) {
+    throw new Error(
+      `Unsafe test schema name "${schema}". Use only letters, digits, and underscores (max 63 chars).`,
+    );
+  }
   const levels = opts.isolationLevels ?? ALL_ISOLATION_LEVELS;
   const wanted = opts.anomalies ?? (Object.keys(PROBES) as AnomalyName[]);
   const results: ProbeResult[] = [];

@@ -113,6 +113,18 @@ databases are precious. jimmy is paranoid by default.
 - query timeout: every statement has a `statement_timeout` set
 - max-rows guard: introspection queries are capped
 
+### jimmy is not an injection vector
+
+jimmy reads identifiers (table, column, enum, policy names) from the database
+and builds SQL from them, so a hostile schema must not be able to inject SQL
+back into jimmy. Every identifier is double-quoted with internal quotes
+doubled, type names come from `format_type` (which quotes), and all values are
+parameterized. An adversarial integration test plants a canary table and runs a
+full introspect plus audit plus fuzz against a schema whose tables, columns, and
+enums have names like `ev"il; DROP TABLE canary; --`; the canary survives and
+the findings are still correct. The anomaly test-schema name is validated
+against a plain-identifier pattern before any DDL runs.
+
 ## how the property tests work
 
 rls fuzz, in plain english:
