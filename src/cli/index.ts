@@ -19,7 +19,7 @@ import { auditSchema } from "../checks/schema/audit.js";
 import { lintFile, lintDirectory } from "../checks/migrations/lint.js";
 import { runAnomalyProbes, ALL_ISOLATION_LEVELS, type AnomalyName, type IsolationLevel } from "../checks/anomalies/probes.js";
 import { detectNplusOne, pgStatStatementsAvailable, readPgStatStatements, readQueryLog } from "../checks/nplusone/detect.js";
-import { buildReport, reportToJson, reportToMarkdown } from "../report/generate.js";
+import { buildReport, reportToJson, reportToMarkdown, reportToSarif } from "../report/generate.js";
 import { anyFails, parseFailOn, type Finding, type Severity } from "../report/findings.js";
 import { applyBaseline, readBaseline, writeBaseline } from "../report/baseline.js";
 import { existsSync } from "node:fs";
@@ -70,13 +70,15 @@ async function buildConnection(opts: CommonOpts) {
   return connect({ connectionString: opts.db, guard });
 }
 
-function saveReport(findings: Finding[], output: string, target: string, title: string): { md: string; json: string } {
+function saveReport(findings: Finding[], output: string, target: string, title: string): { md: string; json: string; sarif: string } {
   const report = buildReport(findings, { title, target });
   const md = `${output}.md`;
   const json = `${output}.json`;
+  const sarif = `${output}.sarif`;
   writeFileSync(md, reportToMarkdown(report));
   writeFileSync(json, reportToJson(report));
-  return { md, json };
+  writeFileSync(sarif, reportToSarif(report));
+  return { md, json, sarif };
 }
 
 function printSummary(findings: Finding[]): void {

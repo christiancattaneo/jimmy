@@ -50,6 +50,96 @@ export function reportToJson(report: JimmyReport): string {
   return JSON.stringify(report, null, 2);
 }
 
+/** Map jimmy severity to SARIF result level. */
+function sarifLevel(severity: Severity): "error" | "warning" | "note" {
+  if (severity === "critical" || severity === "high") return "error";
+  if (severity === "medium") return "warning";
+  return "note";
+}
+
+/** SARIF security-severity score (GitHub uses it to bucket alerts). */
+function securitySeverity(severity: Severity): string {
+  switch (severity) {
+    case "critical":
+      return "9.5";
+    case "high":
+      return "8.0";
+    case "medium":
+      return "5.0";
+    case "low":
+      return "3.0";
+    default:
+      return "0.0";
+  }
+}
+
+/**
+ * SARIF 2.1.0 for GitHub code scanning. Findings with a file location point at
+ * that file; database findings get a synthetic, stable uri so each result
+ * still carries a location (GitHub requires one).
+ */
+export function reportToSarif(report: JimmyReport): string {
+  const ruleIds = [...new Set(report.findings.map((f) => f.ruleId))].sort();
+  const rules = ruleIds.map((id) => {
+    const sample = report.findings.find((f) => f.ruleId === id)!;
+    return {
+      id,
+      name: id.replace(/[^a-zA-Z0-9]/g, ""),
+      shortDescription: { text: sample.title },
+      defaultConfiguration: { level: sarifLevel(sample.severity) },
+      properties: { category: sample.category, "security-severity": securitySeverity(sample.severity) },
+    };
+  });
+
+  const results = report.findings.map((f) => {
+    const uri = f.location.file
+      ? toUri(f.location.file)
+      : `db/${f.location.schema ?? "database"}/${f.location.table ?? f.location.role ?? "object"}`;
+    const region = f.location.line ? { startLine: Math.max(1, f.location.line) } : { startLine: 1 };
+    return {
+      ruleId: f.ruleId,
+      level: sarifLevel(f.severity),
+      message: { text: `${f.title}. ${f.description}` },
+      locations: [
+        {
+          physicalLocation: {
+            artifactLocation: { uri },
+            region,
+          },
+        },
+      ],
+      partialFingerprints: { jimmyFindingId: f.id },
+      properties: { severity: f.severity, category: f.category },
+    };
+  });
+
+  const sarif = {
+    $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+    version: "2.1.0",
+    runs: [
+      {
+        tool: {
+          driver: {
+            name: "jimmy",
+            informationUri: "https://github.com/christiancattaneo/jimmy",
+            version: "0.1.0",
+            rules,
+          },
+        },
+        results,
+      },
+    ],
+  };
+  return JSON.stringify(sarif, null, 2);
+}
+
+function toUri(filePath: string): string {
+  // SARIF uris are relative paths with forward slashes; strip a leading slash.
+  return filePath.replace(/\\/g, "/").replace(/^\//, "");
+}
+
+// reportToSarif is defined above.
+
 export function reportToMarkdown(report: JimmyReport): string {
   const lines: string[] = [];
   lines.push(`# ${report.config.title}`);

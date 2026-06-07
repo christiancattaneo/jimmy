@@ -63,10 +63,24 @@ export {
   buildReport,
   reportToJson,
   reportToMarkdown,
+  reportToSarif,
   type JimmyReport,
   type ReportConfig,
   type ReportStats,
 } from "./report/generate.js";
+export {
+  buildBaseline,
+  applyBaseline,
+  readBaseline,
+  writeBaseline,
+  type Baseline,
+  type BaselineApplication,
+} from "./report/baseline.js";
+export {
+  parseFailOn,
+  anyFails,
+  type FailOnSpec,
+} from "./report/findings.js";
 export {
   SEVERITY_ORDER,
   isAtOrAbove,

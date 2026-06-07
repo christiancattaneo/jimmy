@@ -1,0 +1,117 @@
+name: "Jimmy Database Audit"
+description: "Pries open the database the app thinks is locked: migration safety, and (with a db) RLS, schema integrity, and transaction anomalies."
+branding:
+  icon: "database"
+  color: "purple"
+
+inputs:
+  command:
+    description: "Which check to run: migrations, scan, rls-audit, schema, anomalies"
+    required: false
+    default: "migrations"
+  migrations-dir:
+    description: "Directory of .sql migrations (for the migrations and scan commands)"
+    required: false
+    default: "supabase/migrations"
+  db:
+    description: "Postgres connection string (required for scan, rls-audit, schema, anomalies). Pass via secrets."
+    required: false
+  fail-on:
+    description: "Fail threshold: a severity (high) or per-category (default=high,rls=medium)"
+    required: false
+    default: "high"
+  baseline:
+    description: "Path to a .jimmy-baseline.json to suppress pre-existing findings"
+    required: false
+  output:
+    description: "Report basename (without extension)"
+    required: false
+    default: "jimmy-report"
+
+outputs:
+  total:
+    description: "Total number of findings"
+  critical:
+    description: "Number of critical findings"
+  high:
+    description: "Number of high findings"
+  sarif-file:
+    description: "Path to the SARIF report"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Install jimmy
+      shell: bash
+      run: |
+        cd ${{ github.action_path }}
+        npm ci
+        npm run build
+
+    - name: Run jimmy
+      shell: bash
+      run: |
+        cd ${{ github.action_path }}
+        ARGS=()
+        case "${{ inputs.command }}" in
+          migrations)
+            CMD=(migrations lint --dir "${{ github.workspace }}/${{ inputs.migrations-dir }}")
+            ;;
+          scan)
+            CMD=(scan --db "${{ inputs.db }}" --migrations-dir "${{ github.workspace }}/${{ inputs.migrations-dir }}")
+            ;;
+          rls-audit)
+            CMD=(rls audit --db "${{ inputs.db }}")
+            ;;
+          schema)
+            CMD=(schema --db "${{ inputs.db }}")
+            ;;
+          anomalies)
+            CMD=(anomalies --db "${{ inputs.db }}")
+            ;;
+          *)
+            echo "unknown command: ${{ inputs.command }}"; exit 1
+            ;;
+        esac
+        node dist/cli/index.js "${CMD[@]}" \
+          --fail-on "${{ inputs.fail-on }}" \
+          ${{ inputs.baseline && format('--baseline "{0}"', inputs.baseline) || '' }} \
+          --output "${{ github.workspace }}/${{ inputs.output }}" \
+          || echo "JIMMY_EXIT=$?" >> "$GITHUB_ENV"
+
+    - name: Upload SARIF
+      if: always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: "${{ github.workspace }}/${{ inputs.output }}.sarif"
+      continue-on-error: true
+
+    - name: Set outputs
+      id: jimmy
+      if: always()
+      shell: bash
+      run: |
+        REPORT="${{ github.workspace }}/${{ inputs.output }}.json"
+        if [ -f "$REPORT" ]; then
+          TOTAL=$(node -e "const r=require('$REPORT'); console.log(r.stats.total)")
+          CRIT=$(node -e "const r=require('$REPORT'); console.log(r.stats.bySeverity.critical)")
+          HIGH=$(node -e "const r=require('$REPORT'); console.log(r.stats.bySeverity.high)")
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+          echo "critical=$CRIT" >> "$GITHUB_OUTPUT"
+          echo "high=$HIGH" >> "$GITHUB_OUTPUT"
+        fi
+        echo "sarif-file=${{ github.workspace }}/${{ inputs.output }}.sarif" >> "$GITHUB_OUTPUT"
+
+    - name: Enforce fail-on
+      if: always()
+      shell: bash
+      run: |
+        if [ -n "${JIMMY_EXIT:-}" ] && [ "${JIMMY_EXIT}" = "2" ]; then
+          echo "jimmy found findings at or above the fail-on threshold"
+          exit 1
+        fi
