@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReport, reportToMarkdown, reportToJson, reportToSarif } from "../src/report/generate.js";
+import { buildReport, reportToMarkdown, reportToJson, reportToSarif, reportToHtml } from "../src/report/generate.js";
 import { findingId, isAtOrAbove, type Finding } from "../src/report/findings.js";
 
 function f(severity: Finding["severity"], category: Finding["category"], rule: string, scope: string): Finding {
@@ -158,5 +158,36 @@ describe("reportToSarif", () => {
     for (const r of sarif.runs[0].results) {
       expect(r.locations[0].physicalLocation.region.startLine).toBeGreaterThanOrEqual(1);
     }
+  });
+});
+
+describe("reportToHtml", () => {
+  it("renders a self-contained html document", () => {
+    const findings: Finding[] = [
+      { ...f("critical", "rls-audit", "rls.disabled", "public.t"), title: "RLS off", description: "bad", remediation: "ALTER TABLE t ENABLE ROW LEVEL SECURITY;" },
+    ];
+    const html = reportToHtml(buildReport(findings, { title: "jimmy: rls audit", target: "mydb" }));
+    expect(html).toContain("<!DOCTYPE html>");
+    expect(html).toContain("jimmy: rls audit");
+    expect(html).toContain("RLS off");
+    expect(html).toContain("ENABLE ROW LEVEL SECURITY");
+    // no external assets
+    expect(html).not.toContain("http://");
+    expect(html).not.toMatch(/src="https?:/);
+  });
+
+  it("escapes html in titles and descriptions (xss-safe)", () => {
+    const findings: Finding[] = [
+      { ...f("high", "schema", "r", "x"), title: '<script>alert(1)</script>', description: "a & b < c" },
+    ];
+    const html = reportToHtml(buildReport(findings, { title: "t", target: "x" }));
+    expect(html).not.toContain("<script>alert(1)</script>");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain("a &amp; b &lt; c");
+  });
+
+  it("shows the clean message with zero findings", () => {
+    const html = reportToHtml(buildReport([], { title: "t", target: "x" }));
+    expect(html).toContain("No findings");
   });
 });

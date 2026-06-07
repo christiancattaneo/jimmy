@@ -71,6 +71,7 @@ export {
   reportToJson,
   reportToMarkdown,
   reportToSarif,
+  reportToHtml,
   type JimmyReport,
   type ReportConfig,
   type ReportStats,

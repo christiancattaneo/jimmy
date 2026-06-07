@@ -24,7 +24,7 @@ import { auditPii } from "../checks/pii/audit.js";
 import { lintFile, lintDirectory } from "../checks/migrations/lint.js";
 import { runAnomalyProbes, ALL_ISOLATION_LEVELS, type AnomalyName, type IsolationLevel } from "../checks/anomalies/probes.js";
 import { detectNplusOne, pgStatStatementsAvailable, readPgStatStatements, readQueryLog } from "../checks/nplusone/detect.js";
-import { buildReport, reportToJson, reportToMarkdown, reportToSarif } from "../report/generate.js";
+import { buildReport, reportToJson, reportToMarkdown, reportToSarif, reportToHtml } from "../report/generate.js";
 import { anyFails, parseFailOn, type Finding, type Severity } from "../report/findings.js";
 import { applyBaseline, readBaseline, writeBaseline } from "../report/baseline.js";
 import { explainRule, listRules } from "../report/catalog.js";
@@ -61,6 +61,7 @@ interface CommonOpts {
   updateBaseline?: boolean;
   quiet?: boolean;
   config?: string;
+  diff?: boolean;
 }
 
 /** Load config once per command and cache it on the opts object. */
@@ -85,15 +86,17 @@ async function buildConnection(opts: CommonOpts) {
   return connect({ connectionString: opts.db, guard });
 }
 
-function saveReport(findings: Finding[], output: string, target: string, title: string): { md: string; json: string; sarif: string } {
+function saveReport(findings: Finding[], output: string, target: string, title: string): { md: string; json: string; sarif: string; html: string } {
   const report = buildReport(findings, { title, target });
   const md = `${output}.md`;
   const json = `${output}.json`;
   const sarif = `${output}.sarif`;
+  const html = `${output}.html`;
   writeFileSync(md, reportToMarkdown(report));
   writeFileSync(json, reportToJson(report));
   writeFileSync(sarif, reportToSarif(report));
-  return { md, json, sarif };
+  writeFileSync(html, reportToHtml(report));
+  return { md, json, sarif, html };
 }
 
 function printSummary(findings: Finding[]): void {
@@ -144,7 +147,9 @@ function finalize(
   }
 
   const out = opts.output ?? defaultOut;
-  const paths = saveReport(findings, out, target, title);
+  // In diff mode the report contains only the new (non-baselined) findings.
+  const reported = opts.diff && baselinePath ? effective : findings;
+  const paths = saveReport(reported, out, target, title);
   // CLI --fail-on wins over config.failOn wins over the built-in "high".
   const failOnSpec = opts.failOn ?? config.failOn ?? "high";
   const spec = parseFailOn(String(failOnSpec));
@@ -415,6 +420,7 @@ const dbOpt = (cmd: Command) =>
     .option("--config <file>", "path to jimmy.config.json (auto-discovered otherwise)")
     .option("--baseline <file>", "suppress findings present in this baseline file")
     .option("--update-baseline", "write the current findings as the new baseline", false)
+    .option("--diff", "with --baseline, report only newly introduced findings", false)
     .option("--quiet", "minimal output for CI (one summary line, exit code)", false)
     .option("--allow-host <host>", "host allowlist (repeat for multiple)", (v: string, p: string[] = []) => [...p, v], [])
     .option("--i-know-what-im-doing", "override safety guards (do not use)", false);

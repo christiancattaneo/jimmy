@@ -140,6 +140,68 @@ function toUri(filePath: string): string {
 
 // reportToSarif is defined above.
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+const SEV_COLOR: Record<Severity, string> = {
+  critical: "#ef4444",
+  high: "#f97316",
+  medium: "#eab308",
+  low: "#22c55e",
+  info: "#8b8b96",
+};
+
+/** Self-contained dark HTML report; no external assets. */
+export function reportToHtml(report: JimmyReport): string {
+  const sevBadges = (["critical", "high", "medium", "low", "info"] as Severity[])
+    .map(
+      (s) =>
+        `<span class="sev" style="--c:${SEV_COLOR[s]}">${s} ${report.stats.bySeverity[s]}</span>`,
+    )
+    .join("");
+
+  const findingsHtml = report.findings
+    .map((f) => {
+      const loc = [f.location.schema, f.location.table, f.location.column].filter(Boolean).join(".");
+      const file = f.location.file ? `${f.location.file}${f.location.line ? `:${f.location.line}` : ""}` : "";
+      return `<article class="finding" style="--c:${SEV_COLOR[f.severity]}">
+  <h3><span class="badge" style="background:${SEV_COLOR[f.severity]}">${f.severity}</span> ${escapeHtml(f.title)}</h3>
+  <p class="meta"><code>${escapeHtml(f.ruleId)}</code>${loc ? ` &middot; <code>${escapeHtml(loc)}</code>` : ""}${f.location.role ? ` &middot; role <code>${escapeHtml(f.location.role)}</code>` : ""}${file ? ` &middot; <code>${escapeHtml(file)}</code>` : ""}</p>
+  <p>${escapeHtml(f.description)}</p>
+  ${f.remediation ? `<pre class="fix">${escapeHtml(f.remediation)}</pre>` : ""}
+</article>`;
+    })
+    .join("\n");
+
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(report.config.title)}</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background:#0a0a0f; color:#e4e4e7; font:15px/1.6 -apple-system,Inter,sans-serif; margin:0; padding:2rem; }
+  .wrap { max-width:900px; margin:0 auto; }
+  h1 { font-size:1.6rem; } h3 { font-size:1.05rem; margin:0 0 .4rem; }
+  .target { color:#8b8b96; font-family:monospace; }
+  .sev { display:inline-block; margin:.2rem .4rem .2rem 0; padding:.2rem .6rem; border-radius:999px; border:1px solid var(--c); color:var(--c); font-size:.8rem; }
+  .finding { background:#12121a; border:1px solid #2a2a3a; border-left:3px solid var(--c); border-radius:10px; padding:1rem 1.2rem; margin:1rem 0; }
+  .badge { color:#fff; padding:.1rem .5rem; border-radius:6px; font-size:.75rem; text-transform:uppercase; }
+  .meta { color:#8b8b96; font-size:.85rem; } code { color:#a78bfa; }
+  pre.fix { background:#0d0d14; border:1px solid #2a2a3a; border-radius:8px; padding:.8rem; overflow-x:auto; font-size:.82rem; white-space:pre-wrap; }
+  .empty { color:#22c55e; }
+</style></head>
+<body><div class="wrap">
+<h1>${escapeHtml(report.config.title)}</h1>
+<p class="target">${escapeHtml(report.config.target)} &middot; ${report.config.generatedAt ?? ""}</p>
+<p>${sevBadges}</p>
+${report.findings.length === 0 ? '<p class="empty">No findings. The database looks well-locked from this angle.</p>' : findingsHtml}
+</div></body></html>`;
+}
+
 export function reportToMarkdown(report: JimmyReport): string {
   const lines: string[] = [];
   lines.push(`# ${report.config.title}`);
