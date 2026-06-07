@@ -267,9 +267,77 @@ const RULES: Rule[] = [
 const DDL_RE = /^(alter\s+table|create\s+(unique\s+)?index|drop\s+|truncate\b)/i;
 const LOCK_TIMEOUT_RE = /set\s+lock_timeout/i;
 
+/**
+ * Inline suppression. A comment of the form:
+ *   -- jimmy:ignore                 (suppress every rule on the next statement)
+ *   -- jimmy:ignore migration.drop-table   (suppress one rule)
+ *   -- jimmy:ignore-file            (suppress the whole file)
+ * The directive applies to the next statement (skipping blank/comment lines)
+ * or, when trailing, to the statement on its own line.
+ */
+interface IgnoreDirective {
+  line: number;
+  /** Specific rule id, or null for "all rules". */
+  rule: string | null;
+  file: boolean;
+}
+
+const IGNORE_RE = /--\s*jimmy:ignore(-file)?(?:\s+(\S+))?/i;
+
+function parseIgnoreDirectives(text: string): IgnoreDirective[] {
+  const out: IgnoreDirective[] = [];
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i]!.match(IGNORE_RE);
+    if (m) {
+      out.push({ line: i + 1, file: m[1] === "-file", rule: m[2] ?? null });
+    }
+  }
+  return out;
+}
+
+function isCommentOrBlank(line: string): boolean {
+  const t = line.trim();
+  return t === "" || t.startsWith("--");
+}
+
+/**
+ * Does a directive suppress a finding at `findingLine` for `ruleId`?
+ * A directive on line D applies if D === findingLine (trailing/same line) or if
+ * D is immediately above the finding, separated only by comment/blank lines.
+ */
+function isSuppressed(
+  finding: Finding,
+  directives: IgnoreDirective[],
+  lines: string[],
+): boolean {
+  if (directives.some((d) => d.file)) return true;
+  const findingLine = finding.location.line ?? 0;
+  if (findingLine === 0) return false;
+  for (const d of directives) {
+    if (d.rule !== null && d.rule !== finding.ruleId) continue;
+    if (d.line === findingLine) return true;
+    if (d.line < findingLine) {
+      // walk from the line just above the finding up to the directive; all
+      // intervening lines must be comments/blank for the directive to attach.
+      let allComments = true;
+      for (let ln = findingLine - 1; ln > d.line; ln--) {
+        if (!isCommentOrBlank(lines[ln - 1] ?? "")) {
+          allComments = false;
+          break;
+        }
+      }
+      if (allComments) return true;
+    }
+  }
+  return false;
+}
+
 export function lintSqlText(text: string, filePath: string): Finding[] {
   const findings: Finding[] = [];
   const statements = splitStatementsWithPositions(text);
+  const directives = parseIgnoreDirectives(text);
+  const rawLines = text.split("\n");
 
   let hasDdl = false;
   let setsLockTimeout = false;
@@ -316,7 +384,8 @@ export function lintSqlText(text: string, filePath: string): Finding[] {
     });
   }
 
-  return findings;
+  if (directives.length === 0) return findings;
+  return findings.filter((f) => !isSuppressed(f, directives, rawLines));
 }
 
 export function lintFile(filePath: string): Finding[] {

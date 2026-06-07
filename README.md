@@ -166,6 +166,22 @@ the baseline is keyed by a stable finding id (hash of category + rule + scope),
 so reformatting or moving lines does not reintroduce a baselined finding. when a
 baselined issue gets fixed, jimmy tells you to refresh the baseline.
 
+### inline suppression
+
+migration findings can be suppressed with a comment, for the cases jimmy gets
+wrong or you have consciously accepted:
+
+```sql
+-- jimmy:ignore                      -- suppress every rule on the next statement
+-- jimmy:ignore migration.drop-table -- suppress one rule
+DROP TABLE legacy_events;
+
+-- jimmy:ignore-file                 -- suppress the whole file (put at the top)
+```
+
+a directive attaches to the next statement (blank and comment lines in between
+are fine) or to a statement on its own line as a trailing comment.
+
 ### per-category thresholds
 
 `--fail-on` takes a bare severity or a per-category spec. categories: `rls`

@@ -190,3 +190,46 @@ describe("migration linter rules", () => {
     expect(r.find((f) => f.ruleId === "migration.non-concurrent-index")).toBeUndefined();
   });
 });
+
+describe("inline suppression (-- jimmy:ignore)", () => {
+  it("ignore on the line above suppresses all findings on the next statement", () => {
+    const r = lintSqlText("-- jimmy:ignore\nDROP TABLE t;", "f.sql");
+    expect(r.find((f) => f.ruleId === "migration.drop-table")).toBeUndefined();
+  });
+
+  it("ignore with a specific rule only suppresses that rule", () => {
+    const sql = "-- jimmy:ignore migration.drop-table\nDROP TABLE t;";
+    const r = lintSqlText(sql, "f.sql");
+    expect(r.find((f) => f.ruleId === "migration.drop-table")).toBeUndefined();
+    // lock-timeout-missing is file-level and not the targeted rule, so it stays
+    expect(r.find((f) => f.ruleId === "migration.lock-timeout-missing")).toBeDefined();
+  });
+
+  it("ignore for a different rule does not suppress the actual finding", () => {
+    const r = lintSqlText("-- jimmy:ignore migration.truncate\nDROP TABLE t;", "f.sql");
+    expect(r.find((f) => f.ruleId === "migration.drop-table")).toBeDefined();
+  });
+
+  it("ignore-file suppresses everything in the file", () => {
+    const r = lintSqlText("-- jimmy:ignore-file\nDROP TABLE a;\nDROP TABLE b;", "f.sql");
+    expect(r).toHaveLength(0);
+  });
+
+  it("a blank line between the directive and statement still attaches", () => {
+    const r = lintSqlText("-- jimmy:ignore\n\nDROP TABLE t;", "f.sql");
+    expect(r.find((f) => f.ruleId === "migration.drop-table")).toBeUndefined();
+  });
+
+  it("a directive does not leak to an unrelated later statement", () => {
+    const sql = "-- jimmy:ignore\nDROP TABLE a;\nSELECT 1;\nDROP TABLE b;";
+    const r = lintSqlText(sql, "f.sql");
+    // a is suppressed, b is not (intervening real statement breaks the chain)
+    const drops = r.filter((f) => f.ruleId === "migration.drop-table");
+    expect(drops).toHaveLength(1);
+  });
+
+  it("trailing directive on the same line suppresses that statement", () => {
+    const r = lintSqlText("DROP TABLE t; -- jimmy:ignore", "f.sql");
+    expect(r.find((f) => f.ruleId === "migration.drop-table")).toBeUndefined();
+  });
+});
