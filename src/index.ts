@@ -40,6 +40,7 @@ export { auditCron, type CronAuditResult } from "./checks/cron/audit.js";
 export { fuzzRls, type RlsFuzzOptions, type RlsFuzzResult } from "./checks/rls/fuzz.js";
 export { auditSchema, type SchemaAuditOptions } from "./checks/schema/audit.js";
 export { auditPii } from "./checks/pii/audit.js";
+export { redactFindings, redactSql } from "./report/redact.js";
 export {
   lintFile,
   lintDirectory,

@@ -29,6 +29,7 @@ import { anyFails, parseFailOn, type Finding, type Severity } from "../report/fi
 import { applyBaseline, readBaseline, writeBaseline } from "../report/baseline.js";
 import { explainRule, listRules } from "../report/catalog.js";
 import { loadConfig, applyDisabledRules, type JimmyConfig } from "../config.js";
+import { redactFindings } from "../report/redact.js";
 import { existsSync } from "node:fs";
 
 const program = new Command();
@@ -45,7 +46,15 @@ function log(verbose: boolean) {
 
 function printBanner(quiet?: boolean): void {
   if (quiet) return;
-  console.log(chalk.bold("\n  jimmy"));
+  console.log(
+    chalk.magenta(`
+   _ _
+  (_|_)_ __  _ __ ___  _   _
+  | | | '_ \\| '_ \` _ \\| | | |
+  | | | | | | | | | | | |_| |
+ _/ |_|_| |_|_| |_| |_|\\__, |
+|__/                   |___/`),
+  );
   console.log(chalk.gray("  pries open the database the application thinks is locked\n"));
 }
 
@@ -62,6 +71,7 @@ interface CommonOpts {
   quiet?: boolean;
   config?: string;
   diff?: boolean;
+  redact?: boolean;
 }
 
 /** Load config once per command and cache it on the opts object. */
@@ -127,6 +137,7 @@ function finalize(
 
   // config-level rule disabling applies before everything else.
   findings = applyDisabledRules(findings, config.disabledRules);
+  if (opts.redact) findings = redactFindings(findings);
 
   const baselinePath = opts.baseline ?? config.baseline;
 
@@ -222,6 +233,11 @@ async function rlsFuzzCmd(opts: CommonOpts & { roles?: string; maxTables?: numbe
       tenantColumnNames: cfg.tenantColumns,
       jwtSubKey: cfg.jwtSubKey,
       maxTables: opts.maxTables,
+      onProgress: opts.quiet
+        ? undefined
+        : ({ table, index, total }) => {
+            sp.text = `fuzzing [${index}/${total}] ${table}`;
+          },
     });
     sp.succeed(`fuzzed ${result.history.length} probes, skipped ${result.skipped.length} tables`);
     if (result.skipped.length > 0) {
@@ -421,6 +437,7 @@ const dbOpt = (cmd: Command) =>
     .option("--baseline <file>", "suppress findings present in this baseline file")
     .option("--update-baseline", "write the current findings as the new baseline", false)
     .option("--diff", "with --baseline, report only newly introduced findings", false)
+    .option("--redact", "mask string/number literals in evidence before writing reports", false)
     .option("--quiet", "minimal output for CI (one summary line, exit code)", false)
     .option("--allow-host <host>", "host allowlist (repeat for multiple)", (v: string, p: string[] = []) => [...p, v], [])
     .option("--i-know-what-im-doing", "override safety guards (do not use)", false);
@@ -449,6 +466,8 @@ mig
   .option("--config <file>", "path to jimmy.config.json (auto-discovered otherwise)")
   .option("--baseline <file>", "suppress findings present in this baseline file")
   .option("--update-baseline", "write the current findings as the new baseline", false)
+  .option("--diff", "with --baseline, report only newly introduced findings", false)
+  .option("--redact", "mask string/number literals in evidence before writing reports", false)
   .option("--quiet", "minimal output for CI (one summary line, exit code)", false)
   .action(migrationsCmd);
 

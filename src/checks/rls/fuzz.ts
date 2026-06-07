@@ -41,6 +41,8 @@ export interface RlsFuzzOptions {
   maxTables?: number;
   /** When set, request claims include this jwt sub for tenant A. */
   jwtSubKey?: string;
+  /** Called before probing each table, for progress display. */
+  onProgress?: (info: { table: string; index: number; total: number }) => void;
 }
 
 const DEFAULT_TENANT_COLUMNS = [
@@ -413,7 +415,13 @@ export async function fuzzRls(
   await conn.withRollback(async (client) => {
     await client.query(`SET LOCAL search_path TO public, pg_catalog`);
 
-    for (const plan of plans) {
+    for (let pi = 0; pi < plans.length; pi++) {
+      const plan = plans[pi]!;
+      opts.onProgress?.({
+        table: `${plan.table.schema}.${plan.table.name}`,
+        index: pi + 1,
+        total: plans.length,
+      });
       const sp = `jimmy_seed_${randomUUID().replace(/-/g, "")}`;
       await client.query(`SAVEPOINT ${sp}`);
       try {
