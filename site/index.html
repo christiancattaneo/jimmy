@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>jimmy - pries open the database the app thinks is locked</title>
+  <meta name="description" content="Tests your application's database layer for the gaps the other tools miss: row-level security, multi-tenant isolation, transaction anomalies, schema integrity, and migration safety.">
+
+  <meta property="og:title" content="jimmy - pries open the database the app thinks is locked">
+  <meta property="og:description" content="RLS bypass, multi-tenant leakage, transaction anomalies, schema integrity, migration safety. Jepsen-style, pointed at your app's use of the database.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jimmy.sh">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="jimmy - pries open the database the app thinks is locked">
+  <meta name="twitter:description" content="RLS bypass, multi-tenant leakage, transaction anomalies, schema integrity, migration safety.">
+
+  <link rel="canonical" href="https://jimmy.sh">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b5cf6' stroke-width='2' stroke-linecap='round'><path d='M14 4l6 6-3 3-6-6z'/><path d='M11 7L4 14v6h6l7-7'/></svg>">
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-glow"></div>
+
+  <nav class="nav">
+    <div class="nav-container">
+      <a href="#" class="nav-logo">
+        <svg class="logo-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 4l6 6-3 3-6-6z"/>
+          <path d="M11 7L4 14v6h6l7-7"/>
+        </svg>
+        <span class="logo-text">jimmy</span>
+      </a>
+      <div class="nav-links">
+        <a href="#what">What it finds</a>
+        <a href="#how">How it works</a>
+        <a href="#install">Install</a>
+        <a href="https://github.com/christiancattaneo/jimmy" class="nav-cta">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div class="hero-content">
+      <div class="hero-badge">
+        <span class="badge-dot"></span>
+        Database layer auditing
+      </div>
+      <h1 class="hero-title">
+        <span class="title-line">A crowbar tests the front door.</span>
+        <span class="title-line accent">jimmy tests the basement.</span>
+      </h1>
+      <p class="hero-description">
+        jimmy pries open the database your application thinks is locked. It pokes
+        at the gaps the other tools miss: row-level security, multi-tenant
+        isolation, transaction anomalies, schema integrity, and migration safety.
+        Inspired by Jepsen and Elle, pointed one layer up at your app's use of the database.
+      </p>
+      <div class="hero-cta">
+        <a href="#install" class="btn btn-primary">
+          <span>Get started</span>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </a>
+        <a href="https://github.com/christiancattaneo/jimmy" class="btn btn-ghost">View source</a>
+      </div>
+      <div class="hero-terminal">
+        <div class="term-bar">
+          <span class="term-dot"></span><span class="term-dot"></span><span class="term-dot"></span>
+          <span class="term-title">jimmy rls audit</span>
+        </div>
+        <pre class="term-body"><span class="c-muted"># prove tenant A cannot touch tenant B</span>
+<span class="c-prompt">$</span> npx jimmy-db rls fuzz --db $DATABASE_URL
+
+  <span class="c-ok">[ok]</span> introspected 24 tables, 31 policies
+  <span class="c-ok">[ok]</span> fuzzed 192 probes, skipped 0 tables
+
+  <span class="c-crit">CRITICAL</span> tenant isolation broken: authenticated can read
+           another tenant's row in public.invoices
+  <span class="c-crit">CRITICAL</span> SECURITY DEFINER get_user_role() is callable by anon
+
+  results: 2 critical, 0 high
+  <span class="c-muted">exit 2</span></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="what">
+    <div class="section-head">
+      <h2>The gap nobody else covers</h2>
+      <p>Static scanners read your code. Pen-testers attack the query string. Load tools push until it breaks. None of them reason about <em>who is allowed to see which rows under which session</em>, or whether the data is correct after concurrent writes.</p>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <div class="card-icon">RLS</div>
+        <h3>RLS bypass</h3>
+        <p>Tables with RLS disabled, permissive <code>USING (true)</code> policies, write policies missing <code>WITH CHECK</code>, roles with <code>BYPASSRLS</code>, and tenant columns the policy forgets to filter on.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">FUZZ</div>
+        <h3>Multi-tenant isolation</h3>
+        <p>Seeds two synthetic tenants, authenticates as A, and mechanically proves A cannot <code>SELECT</code>, <code>UPDATE</code>, <code>DELETE</code>, or <code>INSERT</code> against B across every table, role, and operation.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">RPC</div>
+        <h3>SECURITY DEFINER audit</h3>
+        <p>The biggest RLS bypass in Supabase. Flags definer functions callable by anon or authenticated (they run as the owner) and those without a pinned <code>search_path</code>.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">TXN</div>
+        <h3>Transaction anomalies</h3>
+        <p>Hermitage-style probes for lost update, read skew, write skew, G2, and phantoms at every isolation level, plus a <code>FOR UPDATE</code> control that proves the fix works.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">DDL</div>
+        <h3>Migration safety</h3>
+        <p>Squawk-style linter: <code>NOT NULL</code> without default, non-<code>CONCURRENTLY</code> indexes, type rewrites, <code>FK</code>/<code>CHECK</code> without <code>NOT VALID</code>, <code>DISABLE RLS</code>, and missing <code>lock_timeout</code>.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">SQL</div>
+        <h3>Schema integrity</h3>
+        <p>Missing foreign keys, foreign-key columns with no index, nullable columns the app assumes are required, tables with no primary key, and tenant-spanning cascade deletes.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section alt" id="how">
+    <div class="section-head">
+      <h2>Deterministic verdict, generative inputs</h2>
+      <p>The thing being checked is always a pure function of a recorded history, so a result is reproducible and trustworthy. Generation lives on the input side: enumerate the matrix, fuzz the schedule, synthesize adversarial data.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <span class="step-num">01</span>
+        <h3>Introspect</h3>
+        <p>Read <code>pg_catalog</code> and <code>information_schema</code> into a deterministic snapshot: tables, columns, constraints, policies, roles, indexes, functions.</p>
+      </div>
+      <div class="step">
+        <span class="step-num">02</span>
+        <h3>Enumerate</h3>
+        <p>Generate the finite (table x role x operation) matrix from the schema itself. No guessing, no AI deciding pass/fail.</p>
+      </div>
+      <div class="step">
+        <span class="step-num">03</span>
+        <h3>Probe</h3>
+        <p>Seed throwaway tenants inside a rolled-back transaction, impersonate each role, and record every attempt and its outcome.</p>
+      </div>
+      <div class="step">
+        <span class="step-num">04</span>
+        <h3>Check</h3>
+        <p>Any case where A touched B's data is a finding. The verdict is mechanical. Reports come out as markdown, JSON, and SARIF.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="install">
+    <div class="section-head">
+      <h2>Install</h2>
+      <p>Read-only by default. Refuses to run on a database whose name looks like production. Statement and lock timeouts on every connection.</p>
+    </div>
+    <div class="install-grid">
+      <div class="install-card">
+        <h4>Run without installing</h4>
+        <pre class="code"><span class="c-prompt">$</span> npx jimmy-db migrations lint --dir ./supabase/migrations
+<span class="c-prompt">$</span> npx jimmy-db rls audit --db $DATABASE_URL</pre>
+      </div>
+      <div class="install-card">
+        <h4>Adopt on an existing database</h4>
+        <pre class="code"><span class="c-muted"># accept today's findings, fail only on new ones</span>
+<span class="c-prompt">$</span> jimmy scan --db $DATABASE_URL --update-baseline
+<span class="c-prompt">$</span> jimmy scan --db $DATABASE_URL --baseline .jimmy-baseline.json</pre>
+      </div>
+      <div class="install-card">
+        <h4>In CI for migration PRs</h4>
+        <pre class="code"><span class="c-comment">- uses: christiancattaneo/jimmy@main</span>
+  <span class="c-comment">with:</span>
+    <span class="c-comment">command: migrations</span>
+    <span class="c-comment">fail-on: high</span></pre>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-logo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4l6 6-3 3-6-6z"/><path d="M11 7L4 14v6h6l7-7"/></svg>
+        <span>jimmy</span>
+      </div>
+      <p class="footer-tag">Jimmy is to your app's database what fuzzing is to parsers: adversarial, generative, and unkind, on purpose.</p>
+      <div class="footer-links">
+        <a href="https://github.com/christiancattaneo/jimmy">GitHub</a>
+        <a href="https://github.com/christiancattaneo/jimmy#readme">Docs</a>
+        <a href="https://github.com/christiancattaneo/jimmy/issues">Issues</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
