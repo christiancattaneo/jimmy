@@ -7,6 +7,7 @@ function snap(p: Partial<SchemaSnapshot>): SchemaSnapshot {
     introspectedAt: "t",
     tables: [],
     columns: [],
+    grants: [],
     foreignKeys: [],
     uniques: [],
     checks: [],

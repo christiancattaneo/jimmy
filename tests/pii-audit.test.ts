@@ -17,6 +17,7 @@ function snap(cols: Partial<ColumnInfo>[]): SchemaSnapshot {
       default: null,
       ...c,
     })),
+    grants: [],
     foreignKeys: [],
     uniques: [],
     checks: [],

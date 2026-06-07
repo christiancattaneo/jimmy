@@ -25,6 +25,7 @@ function snap(tables: { name: string; cols: { name: string; nullable: boolean }[
     columns: tables.flatMap((t) =>
       t.cols.map((c, i) => ({ schema: "public", table: t.name, name: c.name, ordinal: i + 1, dataType: "text", isNullable: c.nullable, hasDefault: false, default: null })),
     ),
+    grants: [],
     foreignKeys: [],
     uniques: [],
     checks: [],

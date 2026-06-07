@@ -7,6 +7,7 @@ function snapshot(functions: FunctionInfo[]): SchemaSnapshot {
     introspectedAt: "2026-06-07T00:00:00Z",
     tables: [],
     columns: [],
+    grants: [],
     foreignKeys: [],
     uniques: [],
     checks: [],

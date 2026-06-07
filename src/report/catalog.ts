@@ -20,7 +20,7 @@ export const CATALOG: RuleDoc[] = [
     id: "rls.disabled",
     severity: "high",
     summary: "Table has row-level security disabled.",
-    why: "Any role with table grants reads every row. With a tenant column this is cross-tenant exposure.",
+    why: "A public role (anon/authenticated) granted on it reads every row, regardless of tenant. Severity is reachability-aware: critical with a tenant column and a public grant, high if reachable, medium if no public role can reach it (defense-in-depth gap only).",
     fix: "ALTER TABLE t ENABLE ROW LEVEL SECURITY; ALTER TABLE t FORCE ROW LEVEL SECURITY; then add scoped policies.",
   },
   {

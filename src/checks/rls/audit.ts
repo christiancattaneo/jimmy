@@ -103,6 +103,17 @@ export function auditRls(snapshot: SchemaSnapshot, opts: RlsAuditOptions = {}): 
 
   const findings: Finding[] = [];
 
+  // Tables a public-facing role (anon/authenticated/public) can actually reach.
+  // PostgREST only exposes a table if such a grant exists, so RLS-off on a table
+  // with no public grant is a defense-in-depth gap, not a live leak.
+  const publicGrantedTables = new Set(
+    snapshot.grants
+      .filter((g) => publicRoles.has(g.grantee.toLowerCase()))
+      .map((g) => `${g.schema}.${g.table}`),
+  );
+  // If grants could not be introspected at all, assume reachable (fail safe).
+  const grantsKnown = snapshot.grants.length > 0;
+
   for (const table of snapshot.tables) {
     const fqn = `${table.schema}.${table.name}`;
     const policies = findTablePolicies(table, snapshot.policies);
@@ -112,20 +123,30 @@ export function auditRls(snapshot: SchemaSnapshot, opts: RlsAuditOptions = {}): 
       .filter((n) => tenantColumns.includes(n.toLowerCase()));
 
     if (!table.rlsEnabled) {
+      const reachable = !grantsKnown || publicGrantedTables.has(fqn);
+      // Reachable + tenant column -> critical; reachable plain -> high;
+      // not reachable by a public role -> medium (defense-in-depth only).
+      const severity: Severity = !reachable
+        ? "medium"
+        : tableTenantCols.length > 0
+          ? "critical"
+          : "high";
       findings.push({
         id: findingId("rls-audit", "rls.disabled", fqn),
         category: "rls-audit",
         ruleId: "rls.disabled",
-        severity: tableTenantCols.length > 0 ? "critical" : "high",
+        severity,
         title: `RLS disabled on ${fqn}`,
         description:
           `Table ${fqn} has row-level security disabled. ` +
-          (tableTenantCols.length > 0
-            ? `The table has tenant-scoping columns (${tableTenantCols.join(", ")}) but no RLS, so any role with table-level grants reads every tenant.`
-            : `Any role with table-level grants reads every row.`),
+          (!reachable
+            ? `No public-facing role (anon/authenticated) is granted on it, so it is not reachable via PostgREST today; this is a defense-in-depth gap. Enable RLS before granting any public access.`
+            : tableTenantCols.length > 0
+              ? `The table has tenant-scoping columns (${tableTenantCols.join(", ")}) and is reachable by a public role, so that role reads every tenant.`
+              : `It is reachable by a public role with table-level grants, which reads every row.`),
         location: { schema: table.schema, table: table.name },
         remediation: `ALTER TABLE ${fqn} ENABLE ROW LEVEL SECURITY;\nALTER TABLE ${fqn} FORCE ROW LEVEL SECURITY;\n-- then add CREATE POLICY statements scoped to your auth model`,
-        evidence: { tenantColumns: tableTenantCols, estimatedRows: table.estimatedRows },
+        evidence: { tenantColumns: tableTenantCols, estimatedRows: table.estimatedRows, publicReachable: reachable },
       });
       continue;
     }

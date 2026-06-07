@@ -109,10 +109,20 @@ export interface FunctionInfo {
   arguments: string;
 }
 
+export interface TableGrantInfo {
+  schema: string;
+  table: string;
+  /** Grantee role name (e.g. anon, authenticated, public). */
+  grantee: string;
+  /** Privilege types granted (SELECT, INSERT, UPDATE, DELETE, ...). */
+  privileges: string[];
+}
+
 export interface SchemaSnapshot {
   introspectedAt: string;
   tables: TableInfo[];
   columns: ColumnInfo[];
+  grants: TableGrantInfo[];
   foreignKeys: ForeignKeyInfo[];
   uniques: UniqueConstraintInfo[];
   checks: CheckConstraintInfo[];
@@ -412,10 +422,35 @@ export async function introspect(
     arguments: r.arguments,
   }));
 
+  const grantFilter = buildSchemaFilter(opts, "table_schema");
+  const grantSql = `
+    SELECT table_schema::text AS schema,
+           table_name::text AS table,
+           grantee::text AS grantee,
+           array_agg(DISTINCT privilege_type::text) AS privileges
+      FROM information_schema.role_table_grants
+     WHERE ${grantFilter.sql}
+     GROUP BY table_schema, table_name, grantee
+  `;
+  let grants: TableGrantInfo[] = [];
+  try {
+    const grantResult = await client.query(grantSql, grantFilter.params);
+    grants = grantResult.rows.map((r) => ({
+      schema: r.schema,
+      table: r.table,
+      grantee: r.grantee,
+      privileges: r.privileges,
+    }));
+  } catch {
+    // role_table_grants can be restricted; grants stay empty (audit falls back).
+    grants = [];
+  }
+
   return {
     introspectedAt: new Date().toISOString(),
     tables,
     columns,
+    grants,
     foreignKeys,
     uniques,
     checks,

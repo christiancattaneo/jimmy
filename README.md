@@ -12,7 +12,7 @@ inspired by jepsen and elle, but pointed one layer up: at your application's use
 
 slopometer, pinata, whackamole, crowbar, orion all touch the database, but only at the edges: injection at the query string, pool exhaustion, capacity. jimmy covers the rest.
 
-- **rls bypass**: tables with rls disabled, permissive `USING (true)` policies, columns reachable as the anon role, policies that depend on `auth.uid()` but are reachable unauthenticated
+- **rls bypass**: tables with rls disabled (severity is reachability-aware: critical only when a public role is actually granted on the table, medium when it is an unreachable defense-in-depth gap), permissive `USING (true)` policies, columns reachable as the anon role, policies that depend on `auth.uid()` but are reachable unauthenticated
 - **rpc bypass**: `SECURITY DEFINER` functions callable by anon/authenticated (they run as the owner and skip the caller's rls), and definer functions without a pinned `search_path` (name-resolution hijack, a cve-class hazard)
 - **storage leaks**: public supabase storage buckets, buckets with no file-size limit, `storage.objects` with rls disabled, and permissive `USING(true)` storage policies granted to public roles
 - **realtime leaks**: tables in the `supabase_realtime` publication with rls disabled (every change is streamed to subscribers with no filtering) or with rls on but no policy

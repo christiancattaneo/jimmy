@@ -29,6 +29,7 @@ export {
   type RoleInfo,
   type IndexInfo,
   type FunctionInfo,
+  type TableGrantInfo,
   type IntrospectOptions,
 } from "./db/introspect.js";
 

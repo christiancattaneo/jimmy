@@ -7,6 +7,7 @@ function snapshot(partial: Partial<SchemaSnapshot> = {}): SchemaSnapshot {
     introspectedAt: "2026-05-08T00:00:00Z",
     tables: [],
     columns: [],
+    grants: [],
     foreignKeys: [],
     uniques: [],
     checks: [],

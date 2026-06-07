@@ -17,13 +17,17 @@ maybe("rls audit (integration)", () => {
     await ensureSupabaseRoles(admin);
     await freshSchema(admin, SCHEMA);
 
-    // rls disabled, has tenant column -> critical
+    // rls disabled, has tenant column, reachable by a public role -> critical
     await admin.query(`CREATE TABLE ${SCHEMA}.no_rls (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL)`);
+    await admin.query(`GRANT SELECT ON ${SCHEMA}.no_rls TO authenticated`);
 
     // rls enabled, USING(true) -> critical
     await admin.query(`CREATE TABLE ${SCHEMA}.permissive (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL)`);
     await admin.query(`ALTER TABLE ${SCHEMA}.permissive ENABLE ROW LEVEL SECURITY`);
     await admin.query(`CREATE POLICY p ON ${SCHEMA}.permissive FOR SELECT TO authenticated USING (true)`);
+
+    // rls disabled, tenant column, but NO public grant -> medium (not reachable)
+    await admin.query(`CREATE TABLE ${SCHEMA}.internal_no_rls (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL)`);
 
     // properly isolated -> clean
     await admin.query(`CREATE TABLE ${SCHEMA}.isolated (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL)`);
@@ -53,6 +57,11 @@ maybe("rls audit (integration)", () => {
 
       expect(byTable("no_rls").some((f) => f.ruleId === "rls.disabled" && f.severity === "critical")).toBe(true);
       expect(byTable("permissive").some((f) => f.ruleId === "rls.permissive-true" && f.severity === "critical")).toBe(true);
+
+      // RLS off but no public grant -> downgraded to medium (defense-in-depth, not reachable)
+      const internal = byTable("internal_no_rls").find((f) => f.ruleId === "rls.disabled");
+      expect(internal?.severity).toBe("medium");
+      expect(internal?.evidence?.publicReachable).toBe(false);
 
       // The isolated table is correct; it may still earn an info/low note but no high+.
       const isolatedHigh = byTable("isolated").filter((f) => f.severity === "high" || f.severity === "critical");
