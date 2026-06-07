@@ -59,6 +59,42 @@ describe("migration linter rules", () => {
     expect(r.find((f) => f.ruleId === "migration.type-rewrite")).toBeDefined();
   });
 
+  it("flags ADD FOREIGN KEY without NOT VALID", () => {
+    const r = lintSqlText("ALTER TABLE t ADD CONSTRAINT fk FOREIGN KEY (a) REFERENCES u(id);", "f.sql");
+    expect(r.find((f) => f.ruleId === "migration.add-fk-without-not-valid")).toBeDefined();
+  });
+
+  it("does not flag ADD FOREIGN KEY ... NOT VALID", () => {
+    const r = lintSqlText("ALTER TABLE t ADD CONSTRAINT fk FOREIGN KEY (a) REFERENCES u(id) NOT VALID;", "f.sql");
+    expect(r.find((f) => f.ruleId === "migration.add-fk-without-not-valid")).toBeUndefined();
+  });
+
+  it("flags ADD CHECK without NOT VALID", () => {
+    const r = lintSqlText("ALTER TABLE t ADD CONSTRAINT c CHECK (x > 0);", "f.sql");
+    expect(r.find((f) => f.ruleId === "migration.add-check-without-not-valid")).toBeDefined();
+  });
+
+  it("does not flag ADD CHECK ... NOT VALID", () => {
+    const r = lintSqlText("ALTER TABLE t ADD CONSTRAINT c CHECK (x > 0) NOT VALID;", "f.sql");
+    expect(r.find((f) => f.ruleId === "migration.add-check-without-not-valid")).toBeUndefined();
+  });
+
+  it("flags ADD UNIQUE constraint without USING INDEX", () => {
+    const r = lintSqlText("ALTER TABLE t ADD CONSTRAINT u UNIQUE (email);", "f.sql");
+    expect(r.find((f) => f.ruleId === "migration.add-unique-constraint")).toBeDefined();
+  });
+
+  it("does not flag ADD UNIQUE ... USING INDEX", () => {
+    const r = lintSqlText("ALTER TABLE t ADD CONSTRAINT u UNIQUE USING INDEX u_idx;", "f.sql");
+    expect(r.find((f) => f.ruleId === "migration.add-unique-constraint")).toBeUndefined();
+  });
+
+  it("does not flag a plain CREATE TABLE with inline CHECK or UNIQUE", () => {
+    const r = lintSqlText("CREATE TABLE t (id int, x int CHECK (x > 0), email text UNIQUE);", "f.sql");
+    expect(r.find((f) => f.ruleId === "migration.add-check-without-not-valid")).toBeUndefined();
+    expect(r.find((f) => f.ruleId === "migration.add-unique-constraint")).toBeUndefined();
+  });
+
   it("flags DROP TABLE", () => {
     const r = lintSqlText("DROP TABLE t;", "f.sql");
     expect(r.find((f) => f.ruleId === "migration.drop-table")).toBeDefined();

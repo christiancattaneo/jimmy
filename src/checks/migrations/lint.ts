@@ -177,6 +177,36 @@ const RULES: Rule[] = [
     test: (s) => /alter\s+table\s+[^;]*alter\s+column\s+[^;]*type\s+/i.test(s),
   },
   {
+    id: "migration.add-fk-without-not-valid",
+    severity: "medium",
+    title: "ADD FOREIGN KEY without NOT VALID",
+    description:
+      "Adding a foreign key validates every existing row under a SHARE ROW EXCLUSIVE lock, blocking writes to both tables for the duration. Add the constraint NOT VALID, then VALIDATE CONSTRAINT in a separate statement (validation takes a weaker lock).",
+    test: (s) =>
+      /alter\s+table\s+[^;]*add\s+(constraint\s+\S+\s+)?foreign\s+key/i.test(s) &&
+      !/not\s+valid/i.test(s),
+  },
+  {
+    id: "migration.add-check-without-not-valid",
+    severity: "medium",
+    title: "ADD CHECK constraint without NOT VALID",
+    description:
+      "Adding a CHECK constraint scans the whole table to validate under an ACCESS EXCLUSIVE lock. Add it NOT VALID, then VALIDATE CONSTRAINT separately.",
+    test: (s) =>
+      /alter\s+table\s+[^;]*add\s+(constraint\s+\S+\s+)?check\s*\(/i.test(s) &&
+      !/not\s+valid/i.test(s),
+  },
+  {
+    id: "migration.add-unique-constraint",
+    severity: "high",
+    title: "ADD UNIQUE constraint (builds an index under an exclusive lock)",
+    description:
+      "ALTER TABLE ... ADD CONSTRAINT ... UNIQUE builds the backing index while holding ACCESS EXCLUSIVE. Build a unique index CONCURRENTLY first, then ADD CONSTRAINT ... USING INDEX.",
+    test: (s) =>
+      /alter\s+table\s+[^;]*add\s+(constraint\s+\S+\s+)?unique\s*\(/i.test(s) &&
+      !/using\s+index/i.test(s),
+  },
+  {
     id: "migration.drop-column",
     severity: "medium",
     title: "DROP COLUMN",

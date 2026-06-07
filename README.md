@@ -117,11 +117,16 @@ jimmy reports which anomaly is observable at which isolation level and recommend
 - `add-not-null-without-default`: adding a `NOT NULL` column to a non-empty table without a default
 - `non-concurrent-index`: creating an index without `CONCURRENTLY`
 - `type-rewrite`: type changes that rewrite the entire table
+- `add-fk-without-not-valid`: adding a foreign key without `NOT VALID` (validates every row under a lock)
+- `add-check-without-not-valid`: adding a `CHECK` without `NOT VALID`
+- `add-unique-constraint`: `ADD CONSTRAINT ... UNIQUE` without `USING INDEX` (builds the index under an exclusive lock)
+- `set-not-null-on-existing`: `SET NOT NULL` on an existing column (full table scan under a lock)
 - `drop-column`: dropping a column that may still be in use
 - `drop-table`: dropping a table
+- `truncate`: `TRUNCATE` (bypasses row triggers and audit logs)
 - `rename-column`: renaming a column without a transitional alias
 - `rename-table`: renaming a table without a view
-- `lock-timeout-missing`: DDL without a `lock_timeout` set
+- `lock-timeout-missing`: a migration runs DDL but never sets `lock_timeout` (fires once per file)
 - `disable-rls`: `ALTER TABLE ... DISABLE ROW LEVEL SECURITY`
 
 ## adopting on an existing database
