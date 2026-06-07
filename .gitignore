@@ -100,9 +100,16 @@ junit.xml
 # Audit reports (may contain DB schema and tenant ids)
 audit-report*
 jimmy-report*
+jimmy-rls*
+jimmy-schema*
+jimmy-migrations*
+jimmy-anomalies*
+jimmy-nplusone*
+*.sarif
 *.proof.json
 *.findings.json
 reports/
+# Baselines are meant to be committed; do not ignore .jimmy-baseline.json
 
 # Temporary files
 tmp/
