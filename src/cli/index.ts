@@ -14,6 +14,7 @@ import { connect } from "../db/connect.js";
 import { introspect } from "../db/introspect.js";
 import { SafetyGuard, SafetyViolationError, DEFAULT_SAFETY_CONFIG, type SafetyMode } from "../safety/index.js";
 import { auditRls } from "../checks/rls/audit.js";
+import { auditRpc } from "../checks/rls/rpc.js";
 import { fuzzRls } from "../checks/rls/fuzz.js";
 import { auditSchema } from "../checks/schema/audit.js";
 import { lintFile, lintDirectory } from "../checks/migrations/lint.js";
@@ -146,7 +147,7 @@ async function rlsAuditCmd(opts: CommonOpts) {
     conn = await buildConnection({ ...opts, mode: "read-only" });
     const snapshot = await conn.withClient((c) => introspect(c));
     sp.succeed(`introspected ${snapshot.tables.length} tables, ${snapshot.policies.length} policies`);
-    const findings = auditRls(snapshot);
+    const findings = [...auditRls(snapshot), ...auditRpc(snapshot)];
     finalize(findings, opts, "jimmy-rls", "jimmy: rls audit", conn.shape.database);
   } catch (e) {
     sp.fail(coerceMsg(e));
@@ -295,6 +296,7 @@ async function scanCmd(opts: CommonOpts & { migrationsDir?: string }) {
 
     const sp2 = ora("auditing rls").start();
     findings.push(...auditRls(snapshot));
+    findings.push(...auditRpc(snapshot));
     sp2.succeed("rls audit done");
 
     const sp3 = ora("auditing schema integrity").start();

@@ -11,6 +11,7 @@ inspired by jepsen and elle, but pointed one layer up: at your application's use
 slopometer, pinata, whackamole, crowbar, orion all touch the database, but only at the edges: injection at the query string, pool exhaustion, capacity. jimmy covers the rest.
 
 - **rls bypass**: tables with rls disabled, permissive `USING (true)` policies, columns reachable as the anon role, policies that depend on `auth.uid()` but are reachable unauthenticated
+- **rpc bypass**: `SECURITY DEFINER` functions callable by anon/authenticated (they run as the owner and skip the caller's rls), and definer functions without a pinned `search_path` (name-resolution hijack, a cve-class hazard)
 - **multi-tenant leakage**: seed two tenants, authenticate as A, prove A cannot read, update, or delete any of B's rows across every table. mechanically enumerated from the schema
 - **transaction anomalies**: hermitage-style probes for lost update, write skew, read skew, and G2 (anti-dependency cycles). run at every isolation level and assert the database actually behaves the way the app assumes
 - **schema integrity**: missing foreign keys, weak `NOT NULL`, missing `UNIQUE`, missing `CHECK`, soft-delete columns referenced inconsistently, nullable columns the app code assumes are non-null
@@ -58,7 +59,8 @@ runs every check that doesn't mutate the database. produces `jimmy-report.md` an
 ### just rls
 
 ```bash
-# static introspection only (read-only, instant)
+# static introspection only (read-only, instant). includes the rpc /
+# SECURITY DEFINER audit.
 jimmy rls audit --db $DATABASE_URL
 
 # property test (creates throwaway tenants in a test schema)

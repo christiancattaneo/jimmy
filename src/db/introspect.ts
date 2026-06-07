@@ -94,6 +94,21 @@ export interface IndexInfo {
   isPrimary: boolean;
 }
 
+export interface FunctionInfo {
+  schema: string;
+  name: string;
+  /** True if SECURITY DEFINER (runs as the owner, bypassing the caller's RLS). */
+  securityDefiner: boolean;
+  /** Owner role name. */
+  owner: string;
+  /** True if a search_path is pinned via SET search_path in the function config. */
+  hasSearchPath: boolean;
+  /** Roles that can EXECUTE this function (resolved from ACL; includes PUBLIC). */
+  executeRoles: string[];
+  /** Argument signature, for display. */
+  arguments: string;
+}
+
 export interface SchemaSnapshot {
   introspectedAt: string;
   tables: TableInfo[];
@@ -104,6 +119,7 @@ export interface SchemaSnapshot {
   policies: PolicyInfo[];
   roles: RoleInfo[];
   indexes: IndexInfo[];
+  functions: FunctionInfo[];
 }
 
 const DEFAULT_EXCLUDED_SCHEMAS = [
@@ -362,6 +378,40 @@ export async function introspect(
     isPrimary: r.is_primary,
   }));
 
+  const functionSql = `
+    SELECT n.nspname::text AS schema,
+           p.proname::text AS name,
+           p.prosecdef AS security_definer,
+           pg_get_userbyid(p.proowner)::text AS owner,
+           pg_get_function_identity_arguments(p.oid) AS arguments,
+           EXISTS (
+             SELECT 1 FROM unnest(COALESCE(p.proconfig, ARRAY[]::text[])) cfg
+              WHERE cfg ILIKE 'search_path=%'
+           ) AS has_search_path,
+           COALESCE((
+             SELECT array_agg(DISTINCT gr.rolname::text)
+               FROM aclexplode(p.proacl) ae
+               JOIN pg_roles gr ON gr.oid = ae.grantee
+              WHERE ae.privilege_type = 'EXECUTE'
+           ), '{}'::text[]) AS execute_roles,
+           p.proacl IS NULL AS acl_default
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE p.prokind = 'f'
+       AND ${filter.sql}
+  `;
+  const functionResult = await client.query(functionSql, filter.params);
+  const functions: FunctionInfo[] = functionResult.rows.map((r) => ({
+    schema: r.schema,
+    name: r.name,
+    securityDefiner: r.security_definer,
+    owner: r.owner,
+    hasSearchPath: r.has_search_path,
+    // proacl NULL means default privileges: PUBLIC may execute.
+    executeRoles: r.acl_default ? ["PUBLIC", ...r.execute_roles] : r.execute_roles,
+    arguments: r.arguments,
+  }));
+
   return {
     introspectedAt: new Date().toISOString(),
     tables,
@@ -372,5 +422,6 @@ export async function introspect(
     policies,
     roles,
     indexes,
+    functions,
   };
 }

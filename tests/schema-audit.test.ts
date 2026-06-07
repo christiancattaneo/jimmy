@@ -13,6 +13,7 @@ function snapshot(partial: Partial<SchemaSnapshot> = {}): SchemaSnapshot {
     policies: [],
     roles: [],
     indexes: [],
+    functions: [],
     ...partial,
   };
 }
