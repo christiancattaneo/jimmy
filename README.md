@@ -157,11 +157,28 @@ npm run typecheck    # types
 npm run build        # production build
 ```
 
-integration tests need a real postgres. point `JIMMY_TEST_DB` at a throwaway database:
+integration tests need a real postgres. two ways to get one.
+
+local postgres:
 
 ```bash
-JIMMY_TEST_DB=postgres://localhost:5432/jimmy_test npm run test:integration
+./scripts/setup-test-db.sh        # creates jimmy_test + the anon/authenticated roles
+npm run test:integration          # defaults to postgres://localhost:5432/jimmy_test
 ```
+
+throwaway docker:
+
+```bash
+docker compose -f docker-compose.test.yml up -d
+JIMMY_TEST_DB=postgres://postgres:postgres@localhost:55432/jimmy_test npm run test:integration
+docker compose -f docker-compose.test.yml down -v
+```
+
+the integration suite proves the real behavior, not just the pure logic: the rls
+fuzz catches a `USING (true)` leak and clears a properly isolated table, and the
+anomaly probes reproduce the classical postgres isolation results (write skew and
+g2 observable at repeatable read, everything safe at serializable). ci runs both
+on every push.
 
 ## license
 

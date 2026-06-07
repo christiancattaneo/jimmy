@@ -124,10 +124,19 @@ export interface IntrospectOptions {
   includeAuthSchema?: boolean;
 }
 
-function buildSchemaFilter(opts: IntrospectOptions): { sql: string; params: string[] } {
+/**
+ * Build the schema-filtering clause. The column reference differs across
+ * catalog views: pg_class joins expose the schema as `n.nspname`, but
+ * pg_policies exposes it directly as `schemaname`. Passing the column keeps
+ * inclusion/exclusion semantics identical everywhere.
+ */
+function buildSchemaFilter(
+  opts: IntrospectOptions,
+  column = "n.nspname",
+): { sql: string; params: string[] } {
   if (opts.includeSchemas && opts.includeSchemas.length > 0) {
     return {
-      sql: `n.nspname = ANY($1::text[])`,
+      sql: `${column} = ANY($1::text[])`,
       params: [`{${opts.includeSchemas.join(",")}}`],
     };
   }
@@ -136,7 +145,7 @@ function buildSchemaFilter(opts: IntrospectOptions): { sql: string; params: stri
     excluded.push("auth", "storage");
   }
   return {
-    sql: `n.nspname <> ALL($1::text[]) AND n.nspname NOT LIKE 'pg_temp_%' AND n.nspname NOT LIKE 'pg_toast_temp_%'`,
+    sql: `${column} <> ALL($1::text[]) AND ${column} NOT LIKE 'pg_temp_%' AND ${column} NOT LIKE 'pg_toast_temp_%'`,
     params: [`{${[...new Set(excluded)].join(",")}}`],
   };
 }
@@ -277,19 +286,20 @@ export async function introspect(
     expression: r.expression,
   }));
 
+  const policyFilter = buildSchemaFilter(opts, "schemaname");
   const policySql = `
     SELECT schemaname::text AS schema,
            tablename::text AS table,
            policyname::text AS name,
            permissive::text AS type,
            cmd::text AS command,
-           COALESCE(roles, '{}'::text[]) AS roles,
+           COALESCE(roles::text[], '{}'::text[]) AS roles,
            qual::text AS using_clause,
            with_check::text AS with_check
       FROM pg_policies
-     WHERE schemaname <> ALL($1::text[])
+     WHERE ${policyFilter.sql}
   `;
-  const policyResult = await client.query(policySql, filter.params);
+  const policyResult = await client.query(policySql, policyFilter.params);
   const policies: PolicyInfo[] = policyResult.rows.map((r) => ({
     schema: r.schema,
     table: r.table,
