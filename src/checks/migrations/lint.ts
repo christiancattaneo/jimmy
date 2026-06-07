@@ -209,16 +209,6 @@ const RULES: Rule[] = [
     test: (s) => /alter\s+table\s+[^;]*rename\s+to\b/i.test(s),
   },
   {
-    id: "migration.lock-timeout-missing",
-    severity: "low",
-    title: "DDL without lock_timeout",
-    description:
-      "DDL statements should set lock_timeout so a long-running query does not turn the migration into an outage.",
-    test: (s) =>
-      /^(alter\s+table|create\s+(unique\s+)?index|drop\s+|truncate\b)/i.test(s) &&
-      !/set\s+lock_timeout/i.test(s),
-  },
-  {
     id: "migration.disable-rls",
     severity: "critical",
     title: "DISABLE ROW LEVEL SECURITY",
@@ -244,11 +234,24 @@ const RULES: Rule[] = [
   },
 ];
 
+const DDL_RE = /^(alter\s+table|create\s+(unique\s+)?index|drop\s+|truncate\b)/i;
+const LOCK_TIMEOUT_RE = /set\s+lock_timeout/i;
+
 export function lintSqlText(text: string, filePath: string): Finding[] {
   const findings: Finding[] = [];
   const statements = splitStatementsWithPositions(text);
+
+  let hasDdl = false;
+  let setsLockTimeout = false;
+  let firstDdlLine = 1;
+
   for (let i = 0; i < statements.length; i++) {
     const { text: stmt, line } = statements[i]!;
+    if (DDL_RE.test(stmt) && !/temp(orary)?/i.test(stmt)) {
+      if (!hasDdl) firstDdlLine = line;
+      hasDdl = true;
+    }
+    if (LOCK_TIMEOUT_RE.test(stmt)) setsLockTimeout = true;
     for (const rule of RULES) {
       if (rule.test(stmt)) {
         const scope = `${filePath}:${rule.id}:${i}`;
@@ -266,6 +269,23 @@ export function lintSqlText(text: string, filePath: string): Finding[] {
       }
     }
   }
+
+  // lock_timeout is a session setting: one SET covers the whole migration.
+  // Fire at most once per file when DDL exists but no statement sets it.
+  if (hasDdl && !setsLockTimeout) {
+    findings.push({
+      id: findingId("migrations", "migration.lock-timeout-missing", filePath),
+      category: "migrations",
+      ruleId: "migration.lock-timeout-missing",
+      severity: "low",
+      title: `Migration runs DDL without setting lock_timeout (${basename(filePath)})`,
+      description:
+        "This migration runs DDL but never sets lock_timeout. Without it, a single long-running query can make the migration block all access and turn into an outage. Add `SET lock_timeout = '5s';` at the top.",
+      location: { file: filePath, line: firstDdlLine },
+      remediation: "SET lock_timeout = '5s';",
+    });
+  }
+
   return findings;
 }
 

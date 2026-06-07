@@ -87,23 +87,29 @@ describe("migration linter rules", () => {
     expect(b.find((f) => f.ruleId === "migration.rename-table")).toBeDefined();
   });
 
-  it("flags lock-timeout-missing for DDL without SET lock_timeout", () => {
+  it("flags lock-timeout-missing once for DDL without SET lock_timeout", () => {
     const r = lintSqlText("ALTER TABLE t ADD COLUMN x int;", "f.sql");
-    expect(r.find((f) => f.ruleId === "migration.lock-timeout-missing")).toBeDefined();
+    expect(r.filter((f) => f.ruleId === "migration.lock-timeout-missing")).toHaveLength(1);
   });
 
-  it("does not flag lock-timeout when SET lock_timeout is present", () => {
+  it("fires lock-timeout at most once per file even with many DDL statements", () => {
+    const r = lintSqlText("ALTER TABLE a ADD COLUMN x int; ALTER TABLE b ADD COLUMN y int; DROP TABLE c;", "f.sql");
+    expect(r.filter((f) => f.ruleId === "migration.lock-timeout-missing")).toHaveLength(1);
+  });
+
+  it("does not flag lock-timeout when SET lock_timeout is present anywhere in the file", () => {
     const r = lintSqlText("SET lock_timeout = '5s'; ALTER TABLE t ADD COLUMN x int;", "f.sql");
-    // Each statement linted separately. The ALTER statement does not contain the SET, so the rule still fires.
-    // This is intentional: lock_timeout is per-session, not per-statement, but we want to nudge users to set it
-    // in the same migration. Document the behavior explicitly:
-    expect(r.find((f) => f.ruleId === "migration.lock-timeout-missing")).toBeDefined();
+    expect(r.find((f) => f.ruleId === "migration.lock-timeout-missing")).toBeUndefined();
   });
 
-  it("does not flag a BEGIN block that already contains the SET", () => {
-    // Check that the SET statement itself does not get flagged
+  it("does not flag a file with only a SET statement and no DDL", () => {
     const r = lintSqlText("SET lock_timeout = '5s';", "f.sql");
     expect(r).toHaveLength(0);
+  });
+
+  it("does not flag lock-timeout for a pure SELECT file", () => {
+    const r = lintSqlText("SELECT 1;", "f.sql");
+    expect(r.find((f) => f.ruleId === "migration.lock-timeout-missing")).toBeUndefined();
   });
 
   it("does not double-flag a single statement under the same rule", () => {
