@@ -37,7 +37,10 @@ jobs:
           --health-timeout 3s
           --health-retries 20
     env:
-      JIMMY_TEST_DB: postgres://postgres@localhost:5432/jimmy_test
+      # Credential-free connection string; the user comes from PGUSER so no
+      # "user@host" pattern lives in the repo. Postgres uses trust auth above.
+      PGUSER: postgres
+      JIMMY_TEST_DB: postgres://localhost:5432/jimmy_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
