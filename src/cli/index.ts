@@ -20,6 +20,7 @@ import { auditRealtime } from "../checks/realtime/audit.js";
 import { auditCron } from "../checks/cron/audit.js";
 import { fuzzRls } from "../checks/rls/fuzz.js";
 import { auditSchema } from "../checks/schema/audit.js";
+import { auditPii } from "../checks/pii/audit.js";
 import { lintFile, lintDirectory } from "../checks/migrations/lint.js";
 import { runAnomalyProbes, ALL_ISOLATION_LEVELS, type AnomalyName, type IsolationLevel } from "../checks/anomalies/probes.js";
 import { detectNplusOne, pgStatStatementsAvailable, readPgStatStatements, readQueryLog } from "../checks/nplusone/detect.js";
@@ -200,7 +201,7 @@ async function schemaCmd(opts: CommonOpts) {
     conn = await buildConnection({ ...opts, mode: "read-only" });
     const snapshot = await conn.withClient((c) => introspect(c));
     sp.succeed(`audited ${snapshot.tables.length} tables`);
-    const findings = auditSchema(snapshot);
+    const findings = [...auditSchema(snapshot), ...auditPii(snapshot)];
     finalize(findings, opts, "jimmy-schema", "jimmy: schema integrity", conn.shape.database);
   } catch (e) {
     sp.fail(coerceMsg(e));
@@ -324,6 +325,7 @@ async function scanCmd(opts: CommonOpts & { migrationsDir?: string }) {
 
     const sp3 = ora("auditing schema integrity").start();
     findings.push(...auditSchema(snapshot));
+    findings.push(...auditPii(snapshot));
     sp3.succeed("schema audit done");
 
     if (opts.migrationsDir) {
