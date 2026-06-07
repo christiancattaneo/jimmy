@@ -19,9 +19,26 @@ slopometer, pinata, whackamole, crowbar, orion all touch the database, but only 
 
 ## install
 
+run it without installing (the binary is named `jimmy`):
+
+```bash
+npx jimmy-db migrations lint --dir ./supabase/migrations
+npx jimmy-db rls audit --db $DATABASE_URL
+```
+
+or install globally:
+
+```bash
+npm install -g jimmy-db
+jimmy scan --db $DATABASE_URL
+```
+
+from source:
+
 ```bash
 npm install
 npm run build
+node dist/cli/index.js --help
 ```
 
 ## usage

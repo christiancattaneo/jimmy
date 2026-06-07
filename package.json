@@ -1,5 +1,5 @@
 {
-  "name": "jimmy",
+  "name": "jimmy-db",
   "version": "0.1.0",
   "description": "Pries open the database the application thinks is locked. RLS, multi-tenant isolation, transaction anomalies, schema integrity, migration safety.",
   "type": "module",
@@ -13,6 +13,17 @@
     "README.md",
     "LICENSE"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/christiancattaneo/jimmy.git"
+  },
+  "homepage": "https://github.com/christiancattaneo/jimmy#readme",
+  "bugs": {
+    "url": "https://github.com/christiancattaneo/jimmy/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -21,7 +32,8 @@
     "test:run": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "database",
