@@ -217,6 +217,15 @@ describe("auditRls: rls.bypass-role", () => {
     );
     expect(f.find((x) => x.ruleId === "rls.bypass-role")).toBeUndefined();
   });
+
+  it("does not flag service_role (bypass is by design in supabase)", () => {
+    const f = auditRls(
+      snapshot({
+        roles: [{ name: "service_role", isSuperuser: false, canLogin: false, canBypassRls: true }],
+      }),
+    );
+    expect(f.find((x) => x.ruleId === "rls.bypass-role")).toBeUndefined();
+  });
 });
 
 describe("auditRls: rls.enabled-no-policy", () => {

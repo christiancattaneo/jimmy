@@ -115,6 +115,30 @@ describe("auditSchema: weak-not-null", () => {
     );
     expect(f.find((x) => x.ruleId === "schema.weak-not-null")).toBeUndefined();
   });
+
+  it("downgrades weak-not-null to low when the column has a default", () => {
+    const f = auditSchema(
+      snapshot({
+        tables: [{ schema: "public", name: "t", rlsEnabled: false, rlsForced: false, estimatedRows: 0 }],
+        columns: [
+          { schema: "public", table: "t", name: "created_at", ordinal: 1, dataType: "timestamptz", isNullable: true, hasDefault: true, default: "now()" },
+        ],
+      }),
+    );
+    expect(f.find((x) => x.ruleId === "schema.weak-not-null")?.severity).toBe("low");
+  });
+
+  it("keeps weak-not-null high for nullable _id columns without a default", () => {
+    const f = auditSchema(
+      snapshot({
+        tables: [{ schema: "public", name: "t", rlsEnabled: false, rlsForced: false, estimatedRows: 0 }],
+        columns: [
+          { schema: "public", table: "t", name: "user_id", ordinal: 1, dataType: "uuid", isNullable: true, hasDefault: false, default: null },
+        ],
+      }),
+    );
+    expect(f.find((x) => x.ruleId === "schema.weak-not-null")?.severity).toBe("high");
+  });
 });
 
 describe("auditSchema: fk-no-index", () => {

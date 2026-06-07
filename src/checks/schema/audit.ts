@@ -146,7 +146,11 @@ export function auditSchema(
     }
 
     if (col.isNullable && requiredHints.includes(lowered)) {
-      const sev: Severity = lowered.endsWith("_id") ? "high" : "medium";
+      // A nullable column with a default is usually filled on the common path;
+      // the bug only surfaces if someone inserts an explicit NULL. Lower the
+      // severity so the high/critical band stays trustworthy.
+      let sev: Severity = lowered.endsWith("_id") ? "high" : "medium";
+      if (col.hasDefault) sev = "low";
       findings.push({
         id: findingId("schema", "schema.weak-not-null", colFqn),
         category: "schema",
@@ -155,7 +159,9 @@ export function auditSchema(
         title: `${colFqn} is nullable but the name says required`,
         description:
           `Column ${col.name} is nullable. The name implies it is always present. ` +
-          `Application code that relies on the column being non-null will sporadically encounter undefined behavior.`,
+          (col.hasDefault
+            ? `It has a default, so the common insert path is covered, but an explicit NULL still slips through.`
+            : `Application code that relies on the column being non-null will sporadically encounter undefined behavior.`),
         location: { schema: col.schema, table: col.table, column: col.name },
         remediation: `-- after backfilling:\n-- ALTER TABLE ${col.schema}.${col.table} ALTER COLUMN ${col.name} SET NOT NULL;`,
       });

@@ -45,6 +45,9 @@ const DEFAULT_SYSTEM_BYPASS_RLS_ROLES = [
   "supabase_storage_admin",
   "supabase_auth_admin",
   "supabase_replication_admin",
+  // service_role bypasses RLS by design in Supabase; it is meant for trusted
+  // server-side code, never the browser. Flagging it produces only noise.
+  "service_role",
   "rds_superuser",
 ];
 
