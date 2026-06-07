@@ -22,6 +22,9 @@ import { fuzzRls } from "../checks/rls/fuzz.js";
 import { auditSchema } from "../checks/schema/audit.js";
 import { auditPii } from "../checks/pii/audit.js";
 import { auditIndexes } from "../checks/indexes/audit.js";
+import { diffSnapshots } from "../checks/regression/diff.js";
+import { readFileSync } from "node:fs";
+import type { SchemaSnapshot } from "../db/introspect.js";
 import { lintFile, lintDirectory } from "../checks/migrations/lint-fs.js";
 import { runAnomalyProbes, ALL_ISOLATION_LEVELS, type AnomalyName, type IsolationLevel } from "../checks/anomalies/probes.js";
 import { detectNplusOne, detectNplusOneFromTrace, pgStatStatementsAvailable, readPgStatStatements, readQueryLog, readTrace } from "../checks/nplusone/detect.js";
@@ -514,6 +517,56 @@ dbOpt(
     .option("--migrations-dir <dir>", "include migrations linting")
     .action(scanCmd),
 );
+
+dbOpt(
+  program
+    .command("snapshot")
+    .description("save a schema snapshot for later regression comparison")
+    .option("--out <file>", "snapshot output path", "jimmy-snapshot.json")
+    .action(snapshotCmd),
+);
+
+dbOpt(
+  program
+    .command("regress")
+    .description("compare the current schema against a saved snapshot, flag security regressions")
+    .option("--against <file>", "baseline snapshot to compare against")
+    .action(regressCmd),
+);
+
+async function snapshotCmd(opts: CommonOpts & { out?: string }) {
+  printBanner(opts.quiet);
+  const l = log(opts.verbose ?? false);
+  let conn: Awaited<ReturnType<typeof buildConnection>> | null = null;
+  try {
+    conn = await buildConnection({ ...opts, mode: "read-only" });
+    const snapshot = await conn.withClient((c) => introspect(c));
+    const out = opts.out ?? "jimmy-snapshot.json";
+    writeFileSync(out, JSON.stringify(snapshot, null, 2));
+    l.ok(`wrote schema snapshot (${snapshot.tables.length} tables, ${snapshot.policies.length} policies) to ${out}`);
+  } catch (e) {
+    handleError(e);
+  } finally {
+    if (conn) await conn.end();
+  }
+}
+
+async function regressCmd(opts: CommonOpts & { against?: string }) {
+  printBanner(opts.quiet);
+  let conn: Awaited<ReturnType<typeof buildConnection>> | null = null;
+  try {
+    if (!opts.against) throw new Error("--against <snapshot.json> is required");
+    const before = JSON.parse(readFileSync(opts.against, "utf-8")) as SchemaSnapshot;
+    conn = await buildConnection({ ...opts, mode: "read-only" });
+    const after = await conn.withClient((c) => introspect(c));
+    const findings = diffSnapshots(before, after);
+    finalize(findings, opts, "jimmy-regress", "jimmy: schema regression", conn.shape.database);
+  } catch (e) {
+    handleError(e);
+  } finally {
+    if (conn) await conn.end();
+  }
+}
 
 program
   .command("explain")

@@ -41,6 +41,7 @@ export { fuzzRls, adversarialTenantPair, type RlsFuzzOptions, type RlsFuzzResult
 export { auditSchema, type SchemaAuditOptions } from "./checks/schema/audit.js";
 export { auditPii } from "./checks/pii/audit.js";
 export { auditIndexes, type IndexAuditOptions, type IndexAuditResult } from "./checks/indexes/audit.js";
+export { diffSnapshots } from "./checks/regression/diff.js";
 export { redactFindings, redactSql } from "./report/redact.js";
 export { lintSqlText, type MigrationLintOptions } from "./checks/migrations/lint.js";
 export { lintFile, lintDirectory } from "./checks/migrations/lint-fs.js";

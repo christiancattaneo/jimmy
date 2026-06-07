@@ -107,6 +107,17 @@ jimmy nplusone --log queries.log
 jimmy nplusone --trace requests.trace --threshold 10
 ```
 
+### schema regression
+
+catch a migration that silently weakens the database. snapshot the schema, commit
+it, and compare later runs against it. flags RLS turned off, FORCE removed, a
+policy or foreign key dropped, or a column that became nullable.
+
+```bash
+jimmy snapshot --db $DATABASE_URL --out schema.snapshot.json   # commit this
+jimmy regress --db $DATABASE_URL --against schema.snapshot.json # in CI
+```
+
 ### explain a rule
 
 ```bash
