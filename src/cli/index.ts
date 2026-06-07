@@ -22,7 +22,7 @@ import { fuzzRls } from "../checks/rls/fuzz.js";
 import { auditSchema } from "../checks/schema/audit.js";
 import { auditPii } from "../checks/pii/audit.js";
 import { auditIndexes } from "../checks/indexes/audit.js";
-import { lintFile, lintDirectory } from "../checks/migrations/lint.js";
+import { lintFile, lintDirectory } from "../checks/migrations/lint-fs.js";
 import { runAnomalyProbes, ALL_ISOLATION_LEVELS, type AnomalyName, type IsolationLevel } from "../checks/anomalies/probes.js";
 import { detectNplusOne, detectNplusOneFromTrace, pgStatStatementsAvailable, readPgStatStatements, readQueryLog, readTrace } from "../checks/nplusone/detect.js";
 import { buildReport, reportToJson, reportToMarkdown, reportToSarif, reportToHtml } from "../report/generate.js";

@@ -6,9 +6,13 @@
  * brittle, and these patterns are precise enough for the common bad cases.
  */
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, basename } from "node:path";
 import { findingId, type Finding, type Severity } from "../../report/findings.js";
+
+/** Last path segment, without depending on node:path (keeps the browser bundle clean). */
+function basename(p: string): string {
+  const parts = p.split(/[/\\]/);
+  return parts[parts.length - 1] || p;
+}
 
 export interface MigrationLintOptions {
   /** Lint a single file. */
@@ -423,39 +427,6 @@ export function lintSqlText(text: string, filePath: string): Finding[] {
 
   if (directives.length === 0) return findings;
   return findings.filter((f) => !isSuppressed(f, directives, rawLines));
-}
-
-export function lintFile(filePath: string): Finding[] {
-  const text = readFileSync(filePath, "utf-8");
-  return lintSqlText(text, filePath);
-}
-
-export function lintDirectory(dirPath: string): Finding[] {
-  const files: string[] = [];
-  walk(dirPath, files);
-  const all: Finding[] = [];
-  for (const f of files) {
-    if (!f.endsWith(".sql")) continue;
-    all.push(...lintFile(f));
-  }
-  return all;
-}
-
-function walk(dir: string, out: string[]): void {
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    let st;
-    try {
-      st = statSync(full);
-    } catch {
-      continue;
-    }
-    if (st.isDirectory()) {
-      walk(full, out);
-    } else if (st.isFile()) {
-      out.push(full);
-    }
-  }
 }
 
 export const _internal = { stripComments, splitStatements, RULES };
