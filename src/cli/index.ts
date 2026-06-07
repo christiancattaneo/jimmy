@@ -20,7 +20,9 @@ import { lintFile, lintDirectory } from "../checks/migrations/lint.js";
 import { runAnomalyProbes, ALL_ISOLATION_LEVELS, type AnomalyName, type IsolationLevel } from "../checks/anomalies/probes.js";
 import { detectNplusOne, pgStatStatementsAvailable, readPgStatStatements, readQueryLog } from "../checks/nplusone/detect.js";
 import { buildReport, reportToJson, reportToMarkdown } from "../report/generate.js";
-import { isAtOrAbove, type Finding, type Severity } from "../report/findings.js";
+import { anyFails, parseFailOn, type Finding, type Severity } from "../report/findings.js";
+import { applyBaseline, readBaseline, writeBaseline } from "../report/baseline.js";
+import { existsSync } from "node:fs";
 
 const program = new Command();
 
@@ -43,10 +45,12 @@ interface CommonOpts {
   db?: string;
   output?: string;
   verbose?: boolean;
-  failOn?: Severity;
+  failOn?: string;
   iKnowWhatImDoing?: boolean;
   allowHost?: string[];
   mode?: SafetyMode;
+  baseline?: string;
+  updateBaseline?: boolean;
 }
 
 function buildGuard(opts: CommonOpts): SafetyGuard {
@@ -87,10 +91,48 @@ function printSummary(findings: Finding[]): void {
   console.log(`  info:     ${chalk.gray(counts.info)}\n`);
 }
 
-function exitForFindings(findings: Finding[], failOn: Severity): void {
-  for (const f of findings) {
-    if (isAtOrAbove(f.severity, failOn)) process.exit(2);
+/**
+ * Shared end-of-command handling: optional baseline write/apply, report save,
+ * summary print, and exit code. Centralizes the logic every command shares.
+ */
+function finalize(
+  findings: Finding[],
+  opts: CommonOpts & { baseline?: string; updateBaseline?: boolean },
+  defaultOut: string,
+  title: string,
+  target: string,
+): void {
+  const l = log(opts.verbose ?? false);
+
+  if (opts.updateBaseline) {
+    const path = opts.baseline ?? ".jimmy-baseline.json";
+    writeBaseline(path, findings);
+    l.ok(`wrote baseline with ${new Set(findings.map((f) => f.id)).size} accepted findings to ${path}`);
   }
+
+  let effective = findings;
+  let baselinedCount = 0;
+  let resolvedCount = 0;
+  if (opts.baseline && !opts.updateBaseline && existsSync(opts.baseline)) {
+    const applied = applyBaseline(findings, readBaseline(opts.baseline));
+    effective = applied.newFindings;
+    baselinedCount = applied.baselined.length;
+    resolvedCount = applied.resolvedIds.length;
+  }
+
+  const out = opts.output ?? defaultOut;
+  const paths = saveReport(findings, out, target, title);
+  l.ok(`wrote ${paths.md} and ${paths.json}`);
+  if (baselinedCount > 0) l.info(`${baselinedCount} findings suppressed by baseline`);
+  if (resolvedCount > 0) l.info(`${resolvedCount} baselined findings are now resolved (consider --update-baseline)`);
+
+  printSummary(findings);
+  if (baselinedCount > 0) {
+    console.log(`  new (after baseline): ${effective.length}\n`);
+  }
+
+  const spec = parseFailOn(opts.failOn ? String(opts.failOn) : "high");
+  if (anyFails(effective, spec)) process.exit(2);
 }
 
 async function rlsAuditCmd(opts: CommonOpts) {
@@ -103,11 +145,7 @@ async function rlsAuditCmd(opts: CommonOpts) {
     const snapshot = await conn.withClient((c) => introspect(c));
     sp.succeed(`introspected ${snapshot.tables.length} tables, ${snapshot.policies.length} policies`);
     const findings = auditRls(snapshot);
-    const out = opts.output ?? "jimmy-rls";
-    const paths = saveReport(findings, out, conn.shape.database, "jimmy: rls audit");
-    l.ok(`wrote ${paths.md} and ${paths.json}`);
-    printSummary(findings);
-    exitForFindings(findings, opts.failOn ?? "high");
+    finalize(findings, opts, "jimmy-rls", "jimmy: rls audit", conn.shape.database);
   } catch (e) {
     sp.fail(coerceMsg(e));
     handleError(e);
@@ -130,14 +168,10 @@ async function rlsFuzzCmd(opts: CommonOpts & { roles?: string; maxTables?: numbe
       maxTables: opts.maxTables,
     });
     sp.succeed(`fuzzed ${result.history.length} probes, skipped ${result.skipped.length} tables`);
-    const out = opts.output ?? "jimmy-rls-fuzz";
-    const paths = saveReport(result.findings, out, conn.shape.database, "jimmy: rls fuzz");
-    l.ok(`wrote ${paths.md} and ${paths.json}`);
     if (result.skipped.length > 0) {
-      l.warn(`skipped ${result.skipped.length} tables (see report)`);
+      l.warn(`skipped ${result.skipped.length} tables (see report info findings)`);
     }
-    printSummary(result.findings);
-    exitForFindings(result.findings, opts.failOn ?? "high");
+    finalize(result.findings, opts, "jimmy-rls-fuzz", "jimmy: rls fuzz", conn.shape.database);
   } catch (e) {
     sp.fail(coerceMsg(e));
     handleError(e);
@@ -156,11 +190,7 @@ async function schemaCmd(opts: CommonOpts) {
     const snapshot = await conn.withClient((c) => introspect(c));
     sp.succeed(`audited ${snapshot.tables.length} tables`);
     const findings = auditSchema(snapshot);
-    const out = opts.output ?? "jimmy-schema";
-    const paths = saveReport(findings, out, conn.shape.database, "jimmy: schema integrity");
-    l.ok(`wrote ${paths.md} and ${paths.json}`);
-    printSummary(findings);
-    exitForFindings(findings, opts.failOn ?? "high");
+    finalize(findings, opts, "jimmy-schema", "jimmy: schema integrity", conn.shape.database);
   } catch (e) {
     sp.fail(coerceMsg(e));
     handleError(e);
@@ -169,7 +199,9 @@ async function schemaCmd(opts: CommonOpts) {
   }
 }
 
-async function migrationsCmd(opts: { file?: string; dir?: string; output?: string; failOn?: Severity }) {
+async function migrationsCmd(
+  opts: CommonOpts & { file?: string; dir?: string },
+) {
   printBanner();
   if (!opts.file && !opts.dir) {
     console.log(chalk.red("[error] --file or --dir required"));
@@ -181,11 +213,7 @@ async function migrationsCmd(opts: { file?: string; dir?: string; output?: strin
     if (opts.file) findings.push(...lintFile(opts.file));
     if (opts.dir) findings.push(...lintDirectory(opts.dir));
     sp.succeed(`linted ${opts.file ? "1 file" : "directory " + opts.dir}`);
-    const out = opts.output ?? "jimmy-migrations";
-    const paths = saveReport(findings, out, opts.file ?? opts.dir ?? ".", "jimmy: migration lint");
-    console.log(chalk.green(`[ok] wrote ${paths.md} and ${paths.json}`));
-    printSummary(findings);
-    exitForFindings(findings, opts.failOn ?? "high");
+    finalize(findings, opts, "jimmy-migrations", "jimmy: migration lint", opts.file ?? opts.dir ?? ".");
   } catch (e) {
     sp.fail(coerceMsg(e));
     handleError(e);
@@ -207,15 +235,11 @@ async function anomaliesCmd(opts: CommonOpts & { tests?: string; levels?: string
       : ALL_ISOLATION_LEVELS;
     const result = await runAnomalyProbes(conn, { anomalies: tests, isolationLevels: levels });
     sp.succeed(`ran ${result.results.length} probes`);
-    const out = opts.output ?? "jimmy-anomalies";
-    const paths = saveReport(result.findings, out, conn.shape.database, "jimmy: transaction anomalies");
-    l.ok(`wrote ${paths.md} and ${paths.json}`);
     for (const r of result.results) {
       const tag = r.observable ? chalk.red("OBSERVABLE") : chalk.green("safe");
       console.log(`  ${tag} ${r.anomaly} @ ${r.level}  ${chalk.gray(r.detail)}`);
     }
-    printSummary(result.findings);
-    exitForFindings(result.findings, opts.failOn ?? "high");
+    finalize(result.findings, opts, "jimmy-anomalies", "jimmy: transaction anomalies", conn.shape.database);
   } catch (e) {
     sp.fail(coerceMsg(e));
     handleError(e);
@@ -248,11 +272,7 @@ async function nplusoneCmd(opts: CommonOpts & { threshold?: number; log?: string
       }
     }
     const findings = detectNplusOne(stats, { threshold: opts.threshold ?? 50 });
-    const out = opts.output ?? "jimmy-nplusone";
-    const paths = saveReport(findings, out, opts.db ?? opts.log ?? ".", "jimmy: n+1 detection");
-    l.ok(`wrote ${paths.md} and ${paths.json}`);
-    printSummary(findings);
-    exitForFindings(findings, opts.failOn ?? "high");
+    finalize(findings, opts, "jimmy-nplusone", "jimmy: n+1 detection", opts.db ?? opts.log ?? ".");
   } catch (e) {
     sp.fail(coerceMsg(e));
     handleError(e);
@@ -285,11 +305,7 @@ async function scanCmd(opts: CommonOpts & { migrationsDir?: string }) {
       sp4.succeed("migration lint done");
     }
 
-    const out = opts.output ?? "jimmy-report";
-    const paths = saveReport(findings, out, conn.shape.database, "jimmy: full scan");
-    l.ok(`wrote ${paths.md} and ${paths.json}`);
-    printSummary(findings);
-    exitForFindings(findings, opts.failOn ?? "high");
+    finalize(findings, opts, "jimmy-report", "jimmy: full scan", conn.shape.database);
   } catch (e) {
     handleError(e);
   } finally {
@@ -317,7 +333,13 @@ const dbOpt = (cmd: Command) =>
     .option("-d, --db <url>", "postgres connection string")
     .option("-o, --output <file>", "output report basename (without extension)")
     .option("-v, --verbose", "verbose logging")
-    .option("--fail-on <severity>", "exit nonzero if findings at or above this severity", "high")
+    .option(
+      "--fail-on <spec>",
+      "fail threshold. a severity (high) or per-category (default=high,rls=medium,schema=low)",
+      "high",
+    )
+    .option("--baseline <file>", "suppress findings present in this baseline file")
+    .option("--update-baseline", "write the current findings as the new baseline", false)
     .option("--allow-host <host>", "host allowlist (repeat for multiple)", (v: string, p: string[] = []) => [...p, v], [])
     .option("--i-know-what-im-doing", "override safety guards (do not use)", false);
 
@@ -341,7 +363,9 @@ mig
   .option("--file <file>", "single sql file")
   .option("--dir <dir>", "directory of sql files (recursive)")
   .option("-o, --output <file>", "output report basename")
-  .option("--fail-on <severity>", "fail-on severity", "high")
+  .option("--fail-on <spec>", "fail threshold: severity or per-category (default=high,migrations=medium)", "high")
+  .option("--baseline <file>", "suppress findings present in this baseline file")
+  .option("--update-baseline", "write the current findings as the new baseline", false)
   .action(migrationsCmd);
 
 dbOpt(

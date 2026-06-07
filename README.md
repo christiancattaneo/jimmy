@@ -124,10 +124,38 @@ jimmy reports which anomaly is observable at which isolation level and recommend
 - `lock-timeout-missing`: DDL without a `lock_timeout` set
 - `disable-rls`: `ALTER TABLE ... DISABLE ROW LEVEL SECURITY`
 
+## adopting on an existing database
+
+a mature database will have a pile of findings on day one. you do not want to
+fix all of them before the first green build. record a baseline, then only fail
+on findings introduced after it.
+
+```bash
+# accept today's findings
+jimmy scan --db $DATABASE_URL --update-baseline --baseline .jimmy-baseline.json
+
+# later runs only fail on NEW findings
+jimmy scan --db $DATABASE_URL --baseline .jimmy-baseline.json
+```
+
+the baseline is keyed by a stable finding id (hash of category + rule + scope),
+so reformatting or moving lines does not reintroduce a baselined finding. when a
+baselined issue gets fixed, jimmy tells you to refresh the baseline.
+
+### per-category thresholds
+
+`--fail-on` takes a bare severity or a per-category spec. categories: `rls`
+(both audit and fuzz), `schema`, `migrations`, `anomalies`, `nplusone`.
+
+```bash
+# strict on rls, lenient on schema
+jimmy scan --db $DATABASE_URL --fail-on "default=high,rls=medium,schema=critical"
+```
+
 ## exit codes
 
-- `0`: no findings at or above `--fail-on` severity
-- `2`: findings at or above `--fail-on` severity (default: `high`)
+- `0`: no findings at or above the `--fail-on` threshold (after baseline)
+- `2`: findings at or above the `--fail-on` threshold (default: `high`)
 - `3`: safety guard blocked execution
 - `4`: could not connect or introspect
 
