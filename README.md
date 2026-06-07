@@ -96,11 +96,15 @@ jimmy anomalies --db $DATABASE_URL --tests lost-update,write-skew,read-skew,g2
 ### n+1
 
 ```bash
-# from pg_stat_statements
+# from pg_stat_statements (total call counts)
 jimmy nplusone --db $DATABASE_URL --threshold 5
 
-# from a recorded log
+# from a recorded query log
 jimmy nplusone --log queries.log
+
+# strongest signal: a request-tagged trace, grouped per request
+# trace lines are JSON ({"requestId":"abc","query":"..."}) or requestId<TAB>sql
+jimmy nplusone --trace requests.trace --threshold 10
 ```
 
 ### explain a rule

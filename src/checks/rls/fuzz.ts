@@ -119,9 +119,15 @@ function planSeeds(snapshot: SchemaSnapshot, opts: RlsFuzzOptions): SeedPlan[] {
   }
 
   candidates.sort((a, b) => Number(b.table.estimatedRows) - Number(a.table.estimatedRows));
-  if (opts.maxTables && opts.maxTables > 0) return candidates.slice(0, opts.maxTables);
-  return candidates;
+  // Bound probe volume: probe the highest-row tables first and cap the total so
+  // an enormous schema cannot run an unbounded number of probes against the db.
+  // Tables are already sorted by estimated rows, so the cap keeps the most
+  // consequential tables. Override with maxTables.
+  const cap = opts.maxTables && opts.maxTables > 0 ? opts.maxTables : DEFAULT_MAX_TABLES;
+  return candidates.slice(0, cap);
 }
+
+const DEFAULT_MAX_TABLES = 500;
 
 function defaultValueForColumn(col: ColumnInfo, fallbackId: string): string {
   if (col.hasDefault) {

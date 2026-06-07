@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { templatize, detectNplusOne } from "../src/checks/nplusone/detect.js";
+import { templatize, detectNplusOne, detectNplusOneFromTrace, parseTrace } from "../src/checks/nplusone/detect.js";
 
 describe("templatize", () => {
   it("collapses string literals to ?", () => {
@@ -89,5 +89,55 @@ describe("detectNplusOne", () => {
       { threshold: 50 },
     );
     expect(f).toEqual([]);
+  });
+});
+
+describe("parseTrace", () => {
+  it("parses json-lines entries", () => {
+    const t = parseTrace('{"requestId":"r1","query":"SELECT 1"}\n{"request_id":"r2","sql":"SELECT 2"}');
+    expect(t).toEqual([
+      { requestId: "r1", query: "SELECT 1" },
+      { requestId: "r2", query: "SELECT 2" },
+    ]);
+  });
+  it("parses tab-separated entries", () => {
+    const t = parseTrace("r1\tSELECT 1\nr2\tSELECT 2");
+    expect(t).toHaveLength(2);
+    expect(t[0]).toEqual({ requestId: "r1", query: "SELECT 1" });
+  });
+  it("skips malformed lines", () => {
+    expect(parseTrace("garbage\n{bad json}\n")).toEqual([]);
+  });
+});
+
+describe("detectNplusOneFromTrace", () => {
+  function trace(reqId: string, sql: string, n: number) {
+    return Array.from({ length: n }, () => ({ requestId: reqId, query: sql }));
+  }
+
+  it("flags a template fired many times within a single request", () => {
+    const entries = trace("r1", "SELECT * FROM items WHERE order_id = 1", 30);
+    const f = detectNplusOneFromTrace(entries, { threshold: 10 });
+    expect(f).toHaveLength(1);
+    expect(f[0]!.ruleId).toBe("nplusone.per-request");
+    expect(f[0]!.evidence!.maxPerRequest).toBe(30);
+  });
+
+  it("does not flag a template spread thinly across many requests", () => {
+    // 50 requests, each runs the template once: total 50 but per-request 1
+    const entries = Array.from({ length: 50 }, (_, i) => ({ requestId: `r${i}`, query: "SELECT 1 WHERE x = 5" }));
+    const f = detectNplusOneFromTrace(entries, { threshold: 10 });
+    expect(f).toEqual([]);
+  });
+
+  it("uses the worst per-request count across requests", () => {
+    const entries = [...trace("r1", "SELECT * FROM t WHERE id = 1", 3), ...trace("r2", "SELECT * FROM t WHERE id = 2", 15)];
+    const f = detectNplusOneFromTrace(entries, { threshold: 10 });
+    expect(f[0]!.evidence!.maxPerRequest).toBe(15);
+  });
+
+  it("escalates severity for extreme per-request counts", () => {
+    const f = detectNplusOneFromTrace(trace("r1", "SELECT 1 WHERE x = 9", 100), { threshold: 10 });
+    expect(f[0]!.severity).toBe("high");
   });
 });

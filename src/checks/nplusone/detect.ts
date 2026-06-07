@@ -133,3 +133,96 @@ export function detectNplusOne(stats: QueryStat[], opts: NplusoneOptions = {}): 
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n) + "...";
 }
+
+export interface TraceEntry {
+  requestId: string;
+  query: string;
+}
+
+/**
+ * Parse a request-tagged trace. Two accepted formats per line:
+ *   - JSON object: {"requestId":"abc","query":"SELECT ..."}
+ *   - TSV: <requestId>\t<sql>
+ * Lines that match neither are skipped.
+ */
+export function parseTrace(text: string): TraceEntry[] {
+  const out: TraceEntry[] = [];
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith("{")) {
+      try {
+        const o = JSON.parse(trimmed) as { requestId?: string; request_id?: string; query?: string; sql?: string };
+        const requestId = o.requestId ?? o.request_id;
+        const query = o.query ?? o.sql;
+        if (requestId && query) out.push({ requestId, query });
+      } catch {
+        /* skip */
+      }
+      continue;
+    }
+    const tab = trimmed.indexOf("\t");
+    if (tab > 0) {
+      out.push({ requestId: trimmed.slice(0, tab), query: trimmed.slice(tab + 1) });
+    }
+  }
+  return out;
+}
+
+export function readTrace(file: string): TraceEntry[] {
+  return parseTrace(readFileSync(file, "utf-8"));
+}
+
+/**
+ * The real N+1 signal: a single request executes the same query template many
+ * times. Groups by request, then by template, and flags templates whose
+ * per-request execution count exceeds the threshold in any request.
+ */
+export function detectNplusOneFromTrace(entries: TraceEntry[], opts: NplusoneOptions = {}): Finding[] {
+  const threshold = opts.threshold ?? 10;
+  // requestId -> template -> count
+  const perReq = new Map<string, Map<string, number>>();
+  const sampleByTemplate = new Map<string, string>();
+  for (const e of entries) {
+    const t = templatize(e.query);
+    if (!sampleByTemplate.has(t)) sampleByTemplate.set(t, e.query);
+    const reqMap = perReq.get(e.requestId) ?? new Map<string, number>();
+    reqMap.set(t, (reqMap.get(t) ?? 0) + 1);
+    perReq.set(e.requestId, reqMap);
+  }
+
+  // for each template, the worst per-request count and how many requests it hit
+  const worst = new Map<string, { maxPerReq: number; requests: number }>();
+  for (const reqMap of perReq.values()) {
+    for (const [t, count] of reqMap) {
+      const cur = worst.get(t) ?? { maxPerReq: 0, requests: 0 };
+      cur.maxPerReq = Math.max(cur.maxPerReq, count);
+      if (count > 1) cur.requests += 1;
+      worst.set(t, cur);
+    }
+  }
+
+  const findings: Finding[] = [];
+  for (const [template, w] of worst) {
+    if (w.maxPerReq < threshold) continue;
+    const sev: Severity = w.maxPerReq > threshold * 5 ? "high" : "medium";
+    findings.push({
+      id: findingId("nplusone", "nplusone.per-request", template.slice(0, 64)),
+      category: "nplusone",
+      ruleId: "nplusone.per-request",
+      severity: sev,
+      title: `Query template executed ${w.maxPerReq} times in a single request`,
+      description:
+        `Template "${truncate(template, 160)}" ran up to ${w.maxPerReq} times within one request (across ${w.requests} requests). ` +
+        `This is a true N+1: an outer fetch followed by one query per row. Replace with a JOIN, IN (...), or a dataloader.`,
+      location: {},
+      evidence: {
+        sample: truncate(sampleByTemplate.get(template) ?? "", 400),
+        template: truncate(template, 240),
+        maxPerRequest: w.maxPerReq,
+        affectedRequests: w.requests,
+      },
+    });
+  }
+  return findings;
+}

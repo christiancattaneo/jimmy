@@ -24,7 +24,7 @@ import { auditPii } from "../checks/pii/audit.js";
 import { auditIndexes } from "../checks/indexes/audit.js";
 import { lintFile, lintDirectory } from "../checks/migrations/lint.js";
 import { runAnomalyProbes, ALL_ISOLATION_LEVELS, type AnomalyName, type IsolationLevel } from "../checks/anomalies/probes.js";
-import { detectNplusOne, pgStatStatementsAvailable, readPgStatStatements, readQueryLog } from "../checks/nplusone/detect.js";
+import { detectNplusOne, detectNplusOneFromTrace, pgStatStatementsAvailable, readPgStatStatements, readQueryLog, readTrace } from "../checks/nplusone/detect.js";
 import { buildReport, reportToJson, reportToMarkdown, reportToSarif, reportToHtml } from "../report/generate.js";
 import { anyFails, parseFailOn, type Finding, type Severity } from "../report/findings.js";
 import { applyBaseline, readBaseline, writeBaseline } from "../report/baseline.js";
@@ -329,11 +329,19 @@ async function anomaliesCmd(opts: CommonOpts & { tests?: string; levels?: string
   }
 }
 
-async function nplusoneCmd(opts: CommonOpts & { threshold?: number; log?: string }) {
+async function nplusoneCmd(opts: CommonOpts & { threshold?: number; log?: string; trace?: string }) {
   printBanner(opts.quiet);
   const l = log(opts.verbose ?? false);
   const sp = ora("collecting query stats").start();
   try {
+    // a request-tagged trace gives the strongest signal: per-request grouping.
+    if (opts.trace) {
+      const entries = readTrace(opts.trace);
+      sp.succeed(`read ${entries.length} trace entries`);
+      const findings = detectNplusOneFromTrace(entries, { threshold: opts.threshold ?? 10 });
+      finalize(findings, opts, "jimmy-nplusone", "jimmy: n+1 detection", opts.trace);
+      return;
+    }
     let stats;
     if (opts.log) {
       stats = readQueryLog(opts.log);
@@ -490,6 +498,7 @@ dbOpt(
     .description("n+1 query detection")
     .option("--threshold <n>", "execution count threshold", (v: string) => parseInt(v, 10), 50)
     .option("--log <file>", "read from a query log instead of pg_stat_statements")
+    .option("--trace <file>", "read a request-tagged trace (json lines or requestId<TAB>sql) for per-request N+1")
     .action(nplusoneCmd),
 );
 

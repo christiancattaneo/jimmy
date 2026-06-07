@@ -61,11 +61,15 @@ export {
 export {
   templatize,
   detectNplusOne,
+  detectNplusOneFromTrace,
+  parseTrace,
+  readTrace,
   pgStatStatementsAvailable,
   readPgStatStatements,
   readQueryLog,
   type NplusoneOptions,
   type QueryStat,
+  type TraceEntry,
 } from "./checks/nplusone/detect.js";
 
 export {
