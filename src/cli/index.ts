@@ -28,6 +28,7 @@ import { buildReport, reportToJson, reportToMarkdown, reportToSarif } from "../r
 import { anyFails, parseFailOn, type Finding, type Severity } from "../report/findings.js";
 import { applyBaseline, readBaseline, writeBaseline } from "../report/baseline.js";
 import { explainRule, listRules } from "../report/catalog.js";
+import { loadConfig, applyDisabledRules, type JimmyConfig } from "../config.js";
 import { existsSync } from "node:fs";
 
 const program = new Command();
@@ -59,6 +60,12 @@ interface CommonOpts {
   baseline?: string;
   updateBaseline?: boolean;
   quiet?: boolean;
+  config?: string;
+}
+
+/** Load config once per command and cache it on the opts object. */
+function configFor(opts: CommonOpts): JimmyConfig {
+  return loadConfig(opts.config);
 }
 
 function buildGuard(opts: CommonOpts): SafetyGuard {
@@ -113,9 +120,15 @@ function finalize(
   target: string,
 ): void {
   const l = log(opts.verbose ?? false);
+  const config = configFor(opts);
+
+  // config-level rule disabling applies before everything else.
+  findings = applyDisabledRules(findings, config.disabledRules);
+
+  const baselinePath = opts.baseline ?? config.baseline;
 
   if (opts.updateBaseline) {
-    const path = opts.baseline ?? ".jimmy-baseline.json";
+    const path = baselinePath ?? ".jimmy-baseline.json";
     writeBaseline(path, findings);
     l.ok(`wrote baseline with ${new Set(findings.map((f) => f.id)).size} accepted findings to ${path}`);
   }
@@ -123,8 +136,8 @@ function finalize(
   let effective = findings;
   let baselinedCount = 0;
   let resolvedCount = 0;
-  if (opts.baseline && !opts.updateBaseline && existsSync(opts.baseline)) {
-    const applied = applyBaseline(findings, readBaseline(opts.baseline));
+  if (baselinePath && !opts.updateBaseline && existsSync(baselinePath)) {
+    const applied = applyBaseline(findings, readBaseline(baselinePath));
     effective = applied.newFindings;
     baselinedCount = applied.baselined.length;
     resolvedCount = applied.resolvedIds.length;
@@ -132,7 +145,9 @@ function finalize(
 
   const out = opts.output ?? defaultOut;
   const paths = saveReport(findings, out, target, title);
-  const spec = parseFailOn(opts.failOn ? String(opts.failOn) : "high");
+  // CLI --fail-on wins over config.failOn wins over the built-in "high".
+  const failOnSpec = opts.failOn ?? config.failOn ?? "high";
+  const spec = parseFailOn(String(failOnSpec));
   const fails = anyFails(effective, spec);
 
   if (opts.quiet) {
@@ -167,7 +182,11 @@ async function rlsAuditCmd(opts: CommonOpts) {
     conn = await buildConnection({ ...opts, mode: "read-only" });
     const snapshot = await conn.withClient((c) => introspect(c));
     sp.succeed(`introspected ${snapshot.tables.length} tables, ${snapshot.policies.length} policies`);
-    const findings = [...auditRls(snapshot), ...auditRpc(snapshot)];
+    const cfg = configFor(opts);
+    const findings = [
+      ...auditRls(snapshot, { tenantColumnNames: cfg.tenantColumns, publicRoles: cfg.publicRoles }),
+      ...auditRpc(snapshot, { publicRoles: cfg.publicRoles }),
+    ];
     await conn.withClient(async (c) => {
       findings.push(...(await auditStorage(c)).findings);
       findings.push(...(await auditRealtime(c, snapshot)).findings);
@@ -191,8 +210,12 @@ async function rlsFuzzCmd(opts: CommonOpts & { roles?: string; maxTables?: numbe
     conn = await buildConnection({ ...opts, mode: "test-schema" });
     const snapshot = await conn.withClient((c) => introspect(c));
     sp.text = "fuzzing rls (creates throwaway rows inside a rolled-back transaction)";
+    const cfg = configFor(opts);
+    const cliRoles = opts.roles?.split(",").map((s) => s.trim()).filter(Boolean);
     const result = await fuzzRls(conn, snapshot, {
-      roles: opts.roles?.split(",").map((s) => s.trim()).filter(Boolean),
+      roles: cliRoles ?? cfg.roles,
+      tenantColumnNames: cfg.tenantColumns,
+      jwtSubKey: cfg.jwtSubKey,
       maxTables: opts.maxTables,
     });
     sp.succeed(`fuzzed ${result.history.length} probes, skipped ${result.skipped.length} tables`);
@@ -319,9 +342,10 @@ async function scanCmd(opts: CommonOpts & { migrationsDir?: string }) {
 
     const findings: Finding[] = [];
 
+    const cfg = configFor(opts);
     const sp2 = ora("auditing rls").start();
-    findings.push(...auditRls(snapshot));
-    findings.push(...auditRpc(snapshot));
+    findings.push(...auditRls(snapshot, { tenantColumnNames: cfg.tenantColumns, publicRoles: cfg.publicRoles }));
+    findings.push(...auditRpc(snapshot, { publicRoles: cfg.publicRoles }));
     let extras = "";
     await conn.withClient(async (c) => {
       const storage = await auditStorage(c);
@@ -380,9 +404,9 @@ const dbOpt = (cmd: Command) =>
     .option("-v, --verbose", "verbose logging")
     .option(
       "--fail-on <spec>",
-      "fail threshold. a severity (high) or per-category (default=high,rls=medium,schema=low)",
-      "high",
+      "fail threshold. a severity (high) or per-category (default=high,rls=medium,schema=low). default: high",
     )
+    .option("--config <file>", "path to jimmy.config.json (auto-discovered otherwise)")
     .option("--baseline <file>", "suppress findings present in this baseline file")
     .option("--update-baseline", "write the current findings as the new baseline", false)
     .option("--quiet", "minimal output for CI (one summary line, exit code)", false)
@@ -395,7 +419,7 @@ dbOpt(
   rls
     .command("fuzz")
     .description("rls property test: seed two tenants, prove A cannot touch B")
-    .option("--roles <roles>", "comma-separated roles to impersonate", "authenticated,anon")
+    .option("--roles <roles>", "comma-separated roles to impersonate (default: authenticated,anon)")
     .option("--max-tables <n>", "limit number of tables to probe", (v: string) => parseInt(v, 10))
     .action(rlsFuzzCmd),
 );
@@ -409,7 +433,8 @@ mig
   .option("--file <file>", "single sql file")
   .option("--dir <dir>", "directory of sql files (recursive)")
   .option("-o, --output <file>", "output report basename")
-  .option("--fail-on <spec>", "fail threshold: severity or per-category (default=high,migrations=medium)", "high")
+  .option("--fail-on <spec>", "fail threshold: severity or per-category (default: high)")
+  .option("--config <file>", "path to jimmy.config.json (auto-discovered otherwise)")
   .option("--baseline <file>", "suppress findings present in this baseline file")
   .option("--update-baseline", "write the current findings as the new baseline", false)
   .option("--quiet", "minimal output for CI (one summary line, exit code)", false)

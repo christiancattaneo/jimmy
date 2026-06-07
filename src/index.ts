@@ -96,3 +96,10 @@ export {
   type CheckCategory,
 } from "./report/findings.js";
 export { CATALOG, explainRule, listRules, type RuleDoc } from "./report/catalog.js";
+export {
+  loadConfig,
+  applyDisabledRules,
+  JimmyConfigSchema,
+  DEFAULT_CONFIG_FILENAMES,
+  type JimmyConfig,
+} from "./config.js";

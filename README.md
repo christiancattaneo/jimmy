@@ -209,6 +209,28 @@ DROP TABLE legacy_events;
 a directive attaches to the next statement (blank and comment lines in between
 are fine) or to a statement on its own line as a trailing comment.
 
+### config file
+
+drop a `jimmy.config.json` (or `.jimmyrc.json`) in the project root, or point at
+one with `--config`. CLI flags always win over config; config wins over the
+built-in defaults. unknown keys are rejected so typos fail loudly.
+
+```json
+{
+  "failOn": "default=high,rls=medium",
+  "disabledRules": ["rls.not-forced", "schema.only-surrogate-key"],
+  "tenantColumns": ["org_id", "workspace_id"],
+  "publicRoles": ["anon", "authenticated"],
+  "roles": ["authenticated"],
+  "jwtSubKey": "sub",
+  "baseline": ".jimmy-baseline.json"
+}
+```
+
+`tenantColumns` teaches the rls audit, fuzz, and schema checks which columns
+mark tenant ownership in your schema. `jwtSubKey` sets the jwt claim the fuzzer
+uses as the tenant identity.
+
 ### per-category thresholds
 
 `--fail-on` takes a bare severity or a per-category spec. categories: `rls`
