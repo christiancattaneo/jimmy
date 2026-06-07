@@ -113,6 +113,31 @@ describe("auditRls: rls.permissive-true", () => {
     expect(f.find((x) => x.ruleId === "rls.permissive-true")?.severity).toBe("critical");
   });
 
+  it("downgrades an INSERT-only WITH CHECK (true) to low (public-form pattern, no read leak)", () => {
+    const f = auditRls(
+      snapshot({
+        tables: [{ schema: "public", name: "inquiries", rlsEnabled: true, rlsForced: true, estimatedRows: 0 }],
+        policies: [
+          { schema: "public", table: "inquiries", name: "public_insert", type: "PERMISSIVE", command: "INSERT", roles: ["anon"], using: null, withCheck: "true" },
+        ],
+      }),
+    );
+    const pt = f.find((x) => x.ruleId === "rls.permissive-true");
+    expect(pt?.severity).toBe("low");
+  });
+
+  it("still flags USING(true) on a SELECT policy as critical", () => {
+    const f = auditRls(
+      snapshot({
+        tables: [{ schema: "public", name: "t", rlsEnabled: true, rlsForced: true, estimatedRows: 0 }],
+        policies: [
+          { schema: "public", table: "t", name: "p", type: "PERMISSIVE", command: "SELECT", roles: ["anon"], using: "true", withCheck: null },
+        ],
+      }),
+    );
+    expect(f.find((x) => x.ruleId === "rls.permissive-true")?.severity).toBe("critical");
+  });
+
   it("does not flag RESTRICTIVE policy with USING (true)", () => {
     const f = auditRls(
       snapshot({

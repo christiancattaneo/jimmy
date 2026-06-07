@@ -186,19 +186,30 @@ export function auditRls(snapshot: SchemaSnapshot, opts: RlsAuditOptions = {}): 
 
       const usingTrue = isTriviallyTrue(policy.using);
       const withCheckTrue = isTriviallyTrue(policy.withCheck);
+      // A trivially-true USING clause is a read/all-access leak: critical.
+      // A trivially-true WITH CHECK on an INSERT-only policy is the standard
+      // "anyone may submit this form" pattern: it exposes no reads, so it is a
+      // low-severity write-permissiveness note, not a critical leak.
+      const insertOnlyWriteOpen = !usingTrue && withCheckTrue && policy.command === "INSERT";
       if ((usingTrue || withCheckTrue) && policy.type === "PERMISSIVE") {
         findings.push({
           id: findingId("rls-audit", "rls.permissive-true", policyScope),
           category: "rls-audit",
           ruleId: "rls.permissive-true",
-          severity: "critical",
-          title: `Permissive policy with USING (true) on ${fqn}`,
+          severity: insertOnlyWriteOpen ? "low" : "critical",
+          title: insertOnlyWriteOpen
+            ? `INSERT policy with WITH CHECK (true) on ${fqn}`
+            : `Permissive policy with USING (true) on ${fqn}`,
           description:
             `Policy "${policy.name}" on ${fqn} is PERMISSIVE and ` +
             (usingTrue ? "its USING clause is true" : "its WITH CHECK clause is true") +
-            `. RLS is, in effect, off for the roles this policy applies to: [${policy.roles.join(", ")}].`,
+            (insertOnlyWriteOpen
+              ? `. This is INSERT-only, so it lets the roles [${policy.roles.join(", ")}] submit any row (the standard public-form pattern) but exposes no reads. Confirm unauthenticated writes are intended.`
+              : `. RLS is, in effect, off for the roles this policy applies to: [${policy.roles.join(", ")}].`),
           location: { schema: table.schema, table: table.name, role: policy.roles.join(",") },
-          remediation: `DROP POLICY "${policy.name}" ON ${fqn};\n-- replace with a tenant-scoped predicate`,
+          remediation: insertOnlyWriteOpen
+            ? `-- if unauthenticated submission is intended, this is fine; otherwise add a WITH CHECK predicate`
+            : `DROP POLICY "${policy.name}" ON ${fqn};\n-- replace with a tenant-scoped predicate`,
           evidence: {
             policy: policy.name,
             command: policy.command,

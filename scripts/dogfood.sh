@@ -45,6 +45,16 @@ for f in $(ls "$MIGRATIONS_DIR"/*.sql | sort); do
 done
 echo "    applied=$applied failed=$failed (migration errors in $OUT_DIR/migrate.err)"
 
+echo "==> applying supabase default grants (anon/authenticated on public tables)"
+# Real Supabase grants anon and authenticated on public tables by default and
+# relies on RLS as the only gate. Replicate that so reachability-aware severities
+# match production (otherwise RLS-off tables look unreachable here when they are
+# not in production).
+psql "$DB_URL" -q >/dev/null 2>&1 <<'SQL' || true
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon, authenticated;
+SQL
+
 echo "==> jimmy scan (rls audit + schema integrity)"
 node "$JIMMY" scan --db "$DB_URL" --migrations-dir "$MIGRATIONS_DIR" \
   --output "$OUT_DIR/scan" --fail-on critical || true
