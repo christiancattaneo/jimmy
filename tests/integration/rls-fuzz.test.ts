@@ -59,6 +59,28 @@ maybe("rls fuzz (integration)", () => {
         WITH CHECK (true)
     `);
 
+    // HARD CASE: NOT NULL enum column + FK to a parent we never seed.
+    // Exercises enum-value generation and FK suppression during seeding.
+    await admin.query(`CREATE TYPE ${SCHEMA}.doc_status AS ENUM ('draft', 'published')`);
+    await admin.query(`CREATE TABLE ${SCHEMA}.owners (id uuid PRIMARY KEY DEFAULT gen_random_uuid())`);
+    await admin.query(`
+      CREATE TABLE ${SCHEMA}.documents_enum (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id uuid NOT NULL,
+        owner_id uuid NOT NULL REFERENCES ${SCHEMA}.owners(id),
+        status ${SCHEMA}.doc_status NOT NULL,
+        body text
+      )
+    `);
+    await admin.query(`ALTER TABLE ${SCHEMA}.documents_enum ENABLE ROW LEVEL SECURITY`);
+    await admin.query(`ALTER TABLE ${SCHEMA}.documents_enum FORCE ROW LEVEL SECURITY`);
+    await admin.query(`
+      CREATE POLICY tenant_isolation ON ${SCHEMA}.documents_enum
+        FOR ALL TO authenticated
+        USING (tenant_id = (current_setting('request.jwt.claims', true)::json ->> 'sub')::uuid)
+        WITH CHECK (tenant_id = (current_setting('request.jwt.claims', true)::json ->> 'sub')::uuid)
+    `);
+
     await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${SCHEMA} TO authenticated`);
     await admin.query(`GRANT SELECT ON ALL TABLES IN SCHEMA ${SCHEMA} TO anon`);
   }, 60_000);
@@ -86,6 +108,24 @@ maybe("rls fuzz (integration)", () => {
 
       // The isolated table must not leak.
       expect(goodFindings).toHaveLength(0);
+    } finally {
+      await conn.end();
+    }
+  }, 60_000);
+
+  it("seeds and probes a table with a NOT NULL enum and an FK to an unseeded parent (not skipped)", async () => {
+    const conn = await testConnection();
+    try {
+      const snapshot = await conn.withClient((c) => introspect(c, { includeSchemas: [SCHEMA] }));
+      const result = await fuzzRls(conn, snapshot, { roles: ["authenticated"] });
+
+      // It must NOT appear in the skipped list (enum + FK handled).
+      expect(result.skipped.find((s) => s.table.endsWith("documents_enum"))).toBeUndefined();
+      // It must actually get probed.
+      const probed = result.history.filter((h) => h.table.endsWith("documents_enum"));
+      expect(probed.length).toBeGreaterThan(0);
+      // And it is properly isolated, so no leak findings.
+      expect(result.findings.filter((f) => f.location.table === "documents_enum")).toHaveLength(0);
     } finally {
       await conn.end();
     }

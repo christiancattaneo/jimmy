@@ -28,6 +28,12 @@ export interface ColumnInfo {
   isNullable: boolean;
   hasDefault: boolean;
   default: string | null;
+  /**
+   * If the column's type is an enum, its labels in sort order. Empty/omitted
+   * for non-enum columns. Lets the seeder produce a valid value for NOT NULL
+   * enum columns instead of NULL.
+   */
+  enumValues?: string[];
 }
 
 export interface ForeignKeyInfo {
@@ -185,10 +191,15 @@ export async function introspect(
            pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
            NOT a.attnotnull AS is_nullable,
            a.atthasdef AS has_default,
-           pg_get_expr(d.adbin, d.adrelid) AS default_expr
+           pg_get_expr(d.adbin, d.adrelid) AS default_expr,
+           CASE WHEN t.typtype = 'e' THEN (
+             SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder)
+               FROM pg_enum e WHERE e.enumtypid = t.oid
+           ) ELSE NULL END AS enum_values
       FROM pg_attribute a
       JOIN pg_class c ON c.oid = a.attrelid
       JOIN pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_type t ON t.oid = a.atttypid
       LEFT JOIN pg_attrdef d ON d.adrelid = c.oid AND d.adnum = a.attnum
      WHERE c.relkind = 'r'
        AND a.attnum > 0
@@ -206,6 +217,7 @@ export async function introspect(
     isNullable: r.is_nullable,
     hasDefault: r.has_default,
     default: r.default_expr,
+    enumValues: r.enum_values ?? [],
   }));
 
   const fkSql = `

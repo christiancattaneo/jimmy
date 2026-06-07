@@ -125,6 +125,10 @@ function defaultValueForColumn(col: ColumnInfo, fallbackId: string): string {
   if (col.hasDefault) {
     return "DEFAULT";
   }
+  if (col.enumValues && col.enumValues.length > 0) {
+    const label = col.enumValues[0]!.replace(/'/g, "''");
+    return `'${label}'::${col.dataType}`;
+  }
   const t = col.dataType.toLowerCase();
   if (t === "uuid") return `'${fallbackId}'::uuid`;
   if (t.startsWith("text") || t.startsWith("character") || t.startsWith("varchar"))
@@ -274,6 +278,29 @@ function coerceErrorOutcome(
   };
 }
 
+/**
+ * Enter replica mode so foreign-key trigger checks are skipped during seeding.
+ * Returns true if it took effect. Only a superuser may change this setting, so
+ * this is best-effort: if it fails we fall back to FK-respecting seeds (which
+ * is why some tables still get skipped).
+ */
+async function trySuppressForeignKeys(client: Client): Promise<boolean> {
+  try {
+    await client.query(`SET LOCAL session_replication_role = replica`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function tryRestoreForeignKeys(client: Client): Promise<void> {
+  try {
+    await client.query(`SET LOCAL session_replication_role = origin`);
+  } catch {
+    /* if we could set it we can unset it; ignore otherwise */
+  }
+}
+
 async function rollbackTo(client: Client, sp: string): Promise<void> {
   try {
     await client.query(`ROLLBACK TO SAVEPOINT ${sp}`);
@@ -384,8 +411,14 @@ export async function fuzzRls(
       await client.query(`SAVEPOINT ${sp}`);
       try {
         await setRoleAndClaim(client, "postgres", tenantA, jwtSubKey);
+        // Suppress FK trigger validation while seeding so we can seed a table
+        // whose foreign keys point at parent tables we have not (and cannot)
+        // seed (e.g. auth.users). Requires superuser; best-effort. Probing
+        // runs with normal trigger semantics restored below.
+        const fkSuppressed = await trySuppressForeignKeys(client);
         await seedTenantRow(client, plan, tenantA);
         const seededOther = await seedTenantRow(client, plan, tenantB);
+        if (fkSuppressed) await tryRestoreForeignKeys(client);
 
         for (const role of roles) {
           const outcomes = await probe(
@@ -416,6 +449,26 @@ export async function fuzzRls(
       }
     }
   });
+
+  // Surface skipped tables as info findings so the report is self-documenting
+  // (no more guessing why a table was not probed).
+  for (const s of skipped) {
+    findings.push({
+      id: findingId("rls-fuzz", "rls.fuzz.skipped", s.table),
+      category: "rls-fuzz",
+      ruleId: "rls.fuzz.skipped",
+      severity: "info",
+      title: `Could not fuzz ${s.table}`,
+      description:
+        `jimmy could not seed or probe ${s.table}, so its tenant isolation was not verified. ` +
+        `This is a gap in coverage, not a clean result. Reason: ${s.reason}`,
+      location: {
+        schema: s.table.split(".")[0],
+        table: s.table.split(".").slice(1).join("."),
+      },
+      evidence: { reason: s.reason },
+    });
+  }
 
   return { findings, history, skipped };
 }
