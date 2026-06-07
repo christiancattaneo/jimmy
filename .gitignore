@@ -160,6 +160,7 @@ migration-lock.json
 # Docker
 docker-compose.override.yml
 .docker/
+.dockerignore.local
 
 # Core dumps
 core

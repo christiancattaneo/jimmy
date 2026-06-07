@@ -1,0 +1,16 @@
+node_modules
+dist
+tests
+site
+docs
+.git
+.github
+*.md
+!README.md
+.pinata
+.slopometer
+.vercel
+*.sarif
+jimmy-*.json
+jimmy-*.html
+.jimmy-baseline.json
