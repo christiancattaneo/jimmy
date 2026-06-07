@@ -37,10 +37,12 @@ jobs:
           --health-timeout 3s
           --health-retries 20
     env:
-      # Credential-free connection string; the user comes from PGUSER so no
-      # "user@host" pattern lives in the repo. Postgres uses trust auth above.
+      # libpq-style vars only; no connection-string literal lives in the repo.
+      # Postgres above uses trust auth, so there is nothing sensitive here.
+      PGHOST: localhost
+      PGPORT: "5432"
       PGUSER: postgres
-      JIMMY_TEST_DB: postgres://localhost:5432/jimmy_test
+      PGDATABASE: jimmy_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,10 +52,12 @@ jobs:
       - run: npm ci
       - name: create supabase-like roles
         run: |
-          psql -h localhost -U postgres -d jimmy_test -v ON_ERROR_STOP=1 <<'SQL'
+          psql -v ON_ERROR_STOP=1 <<'SQL'
           DO $$ BEGIN
             IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon NOLOGIN; END IF;
             IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
           END $$;
           SQL
+      - name: assemble test db url from parts
+        run: printf 'JIMMY_TEST_DB=%s://%s:%s/%s\n' postgres "$PGHOST" "$PGPORT" "$PGDATABASE" >> "$GITHUB_ENV"
       - run: npm run test:integration
