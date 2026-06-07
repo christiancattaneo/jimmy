@@ -37,7 +37,7 @@ export { auditRpc, type RpcAuditOptions } from "./checks/rls/rpc.js";
 export { auditStorage, type StorageAuditResult } from "./checks/storage/audit.js";
 export { auditRealtime, type RealtimeAuditResult } from "./checks/realtime/audit.js";
 export { auditCron, type CronAuditResult } from "./checks/cron/audit.js";
-export { fuzzRls, type RlsFuzzOptions, type RlsFuzzResult } from "./checks/rls/fuzz.js";
+export { fuzzRls, adversarialTenantPair, type RlsFuzzOptions, type RlsFuzzResult } from "./checks/rls/fuzz.js";
 export { auditSchema, type SchemaAuditOptions } from "./checks/schema/audit.js";
 export { auditPii } from "./checks/pii/audit.js";
 export { auditIndexes, type IndexAuditOptions, type IndexAuditResult } from "./checks/indexes/audit.js";

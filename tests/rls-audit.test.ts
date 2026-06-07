@@ -53,6 +53,19 @@ describe("clauseReferencesAny", () => {
   });
 });
 
+describe("adversarialTenantPair", () => {
+  it("produces two valid uuids differing in exactly one final hex digit", async () => {
+    const { adversarialTenantPair } = await import("../src/checks/rls/fuzz.js");
+    const [a, b] = adversarialTenantPair();
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    expect(a).toMatch(uuidRe);
+    expect(b).toMatch(uuidRe);
+    expect(a).not.toBe(b);
+    // differ only in the last character
+    expect(a.slice(0, -1)).toBe(b.slice(0, -1));
+  });
+});
+
 describe("auditRls: rls.disabled", () => {
   it("flags any table with rls disabled", () => {
     const f = auditRls(

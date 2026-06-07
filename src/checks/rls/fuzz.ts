@@ -129,6 +129,22 @@ function planSeeds(snapshot: SchemaSnapshot, opts: RlsFuzzOptions): SeedPlan[] {
 
 const DEFAULT_MAX_TABLES = 500;
 
+/**
+ * An adversarial tenant pair: two valid uuids that differ in exactly one hex
+ * digit (a near collision). If a policy filters tenants with a prefix match,
+ * LIKE, substring, or a truncated comparison instead of strict equality, a
+ * near-collision pair exposes it where two random uuids would not. Tenant A is
+ * also kept away from the all-zero/all-f boundaries that buggy code special-cases.
+ */
+export function adversarialTenantPair(): [string, string] {
+  const a = randomUUID();
+  // flip the final hex digit to its neighbor, preserving uuid validity
+  const last = a[a.length - 1]!;
+  const flipped = last === "f" ? "e" : "f";
+  const b = a.slice(0, -1) + flipped;
+  return [a, b];
+}
+
 function defaultValueForColumn(col: ColumnInfo, fallbackId: string): string {
   if (col.hasDefault) {
     return "DEFAULT";
@@ -410,8 +426,7 @@ export async function fuzzRls(
 
   const roles = opts.roles ?? DEFAULT_ROLES;
   const jwtSubKey = opts.jwtSubKey ?? "sub";
-  const tenantA = randomUUID();
-  const tenantB = randomUUID();
+  const [tenantA, tenantB] = adversarialTenantPair();
 
   const plans = planSeeds(snapshot, opts);
   const findings: Finding[] = [];

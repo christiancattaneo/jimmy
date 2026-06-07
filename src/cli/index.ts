@@ -218,7 +218,7 @@ async function rlsAuditCmd(opts: CommonOpts) {
   }
 }
 
-async function rlsFuzzCmd(opts: CommonOpts & { roles?: string; maxTables?: number }) {
+async function rlsFuzzCmd(opts: CommonOpts & { roles?: string; maxTables?: number; history?: string }) {
   printBanner(opts.quiet);
   const l = log(opts.verbose ?? false);
   const sp = ora("introspecting").start();
@@ -243,6 +243,10 @@ async function rlsFuzzCmd(opts: CommonOpts & { roles?: string; maxTables?: numbe
     sp.succeed(`fuzzed ${result.history.length} probes, skipped ${result.skipped.length} tables`);
     if (result.skipped.length > 0) {
       l.warn(`skipped ${result.skipped.length} tables (see report info findings)`);
+    }
+    if (opts.history) {
+      writeFileSync(opts.history, JSON.stringify({ history: result.history, skipped: result.skipped }, null, 2));
+      l.ok(`wrote probe history to ${opts.history}`);
     }
     finalize(result.findings, opts, "jimmy-rls-fuzz", "jimmy: rls fuzz", conn.shape.database);
   } catch (e) {
@@ -462,6 +466,7 @@ dbOpt(
     .description("rls property test: seed two tenants, prove A cannot touch B")
     .option("--roles <roles>", "comma-separated roles to impersonate (default: authenticated,anon)")
     .option("--max-tables <n>", "limit number of tables to probe", (v: string) => parseInt(v, 10))
+    .option("--history <file>", "write the full probe history (every attempt + outcome) to a json file")
     .action(rlsFuzzCmd),
 );
 
