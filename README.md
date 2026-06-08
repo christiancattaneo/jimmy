@@ -140,6 +140,21 @@ suggester only chooses where to point them.
 jimmy suggest --db $DATABASE_URL
 ```
 
+### ai remediation (optional)
+
+with `--ai`, jimmy sends the findings to Claude (latest model, `claude-opus-4-8`)
+for concrete, schema-aware remediation suggestions, written to `<output>.ai.md`.
+needs `ANTHROPIC_API_KEY` (read from the environment or a local `.env`/`.env.local`).
+
+```bash
+jimmy scan --db $DATABASE_URL --ai
+jimmy migrations lint --dir ./supabase/migrations --ai
+```
+
+the verdict stays deterministic: jimmy's own checks decide pass/fail; the AI only
+proposes fixes. cost is bounded to a single call per run (top 20 findings, capped
+output), roughly a few cents, and the exact token count and cost are printed.
+
 ### explain a rule
 
 ```bash

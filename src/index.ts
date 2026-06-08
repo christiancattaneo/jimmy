@@ -45,6 +45,8 @@ export { auditIndexes, type IndexAuditOptions, type IndexAuditResult } from "./c
 export { diffSnapshots } from "./checks/regression/diff.js";
 export { crossCheckPrisma, parsePrismaSchema } from "./checks/orm/prisma.js";
 export { proposeProperties } from "./checks/suggest/propose.js";
+export { askClaude, resolveApiKey, type AiResult } from "./ai/client.js";
+export { aiRemediate, buildRemediationPrompt, type RemediationResult } from "./ai/remediate.js";
 export { redactFindings, redactSql } from "./report/redact.js";
 export {
   lintSqlText,

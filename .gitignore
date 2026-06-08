@@ -106,6 +106,7 @@ jimmy-migrations*
 jimmy-anomalies*
 jimmy-nplusone*
 *.sarif
+*.ai.md
 *.proof.json
 *.findings.json
 reports/

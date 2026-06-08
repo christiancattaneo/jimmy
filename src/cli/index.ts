@@ -37,6 +37,7 @@ import { applyBaseline, readBaseline, writeBaseline } from "../report/baseline.j
 import { explainRule, listRules } from "../report/catalog.js";
 import { loadConfig, applyDisabledRules, type JimmyConfig } from "../config.js";
 import { redactFindings } from "../report/redact.js";
+import { aiRemediate } from "../ai/remediate.js";
 import { existsSync } from "node:fs";
 
 const program = new Command();
@@ -81,6 +82,7 @@ interface CommonOpts {
   redact?: boolean;
   includeSchema?: string[];
   excludeSchema?: string[];
+  ai?: boolean;
 }
 
 /** Load config once per command and cache it on the opts object. */
@@ -142,13 +144,13 @@ function printSummary(findings: Finding[]): void {
  * Shared end-of-command handling: optional baseline write/apply, report save,
  * summary print, and exit code. Centralizes the logic every command shares.
  */
-function finalize(
+async function finalize(
   findings: Finding[],
   opts: CommonOpts & { baseline?: string; updateBaseline?: boolean },
   defaultOut: string,
   title: string,
   target: string,
-): void {
+): Promise<void> {
   const l = log(opts.verbose ?? false);
   const config = configFor(opts);
 
@@ -183,6 +185,11 @@ function finalize(
   const spec = parseFailOn(String(failOnSpec));
   const fails = anyFails(effective, spec);
 
+  // Optional AI remediation (one bounded, opt-in call; never affects the verdict).
+  if (opts.ai && reported.some((f) => f.severity !== "info")) {
+    await emitAiRemediation(reported, target, out, opts.quiet);
+  }
+
   if (opts.quiet) {
     // One machine-friendly line, then the exit code does the talking.
     const counts: Record<Severity, number> = { info: 0, low: 0, medium: 0, high: 0, critical: 0 };
@@ -206,6 +213,25 @@ function finalize(
   if (fails) process.exit(2);
 }
 
+/** Run the optional AI remediation and write/print it. Failures are non-fatal. */
+async function emitAiRemediation(findings: Finding[], target: string, out: string, quiet?: boolean): Promise<void> {
+  try {
+    const r = await aiRemediate(findings, target);
+    writeFileSync(`${out}.ai.md`, `# jimmy AI remediation (${r.model})\n\n${r.text}\n`);
+    if (!quiet) {
+      console.log(chalk.magenta(`\n  AI remediation (${r.model})\n`));
+      console.log(r.text);
+      console.log(
+        chalk.gray(
+          `\n  [${r.promptFindings} findings, ${r.inputTokens}+${r.outputTokens} tokens, ~$${r.costUsd.toFixed(4)}] -> ${out}.ai.md`,
+        ),
+      );
+    }
+  } catch (e) {
+    log(false).warn(`AI remediation skipped: ${coerceMsg(e)}`);
+  }
+}
+
 async function rlsAuditCmd(opts: CommonOpts) {
   printBanner(opts.quiet);
   const l = log(opts.verbose ?? false);
@@ -225,7 +251,7 @@ async function rlsAuditCmd(opts: CommonOpts) {
       findings.push(...(await auditRealtime(c, snapshot)).findings);
       findings.push(...(await auditCron(c)).findings);
     });
-    finalize(findings, opts, "jimmy-rls", "jimmy: rls audit", conn.shape.database);
+    await finalize(findings, opts, "jimmy-rls", "jimmy: rls audit", conn.shape.database);
   } catch (e) {
     sp.fail(coerceMsg(e));
     handleError(e);
@@ -264,7 +290,7 @@ async function rlsFuzzCmd(opts: CommonOpts & { roles?: string; maxTables?: numbe
       writeFileSync(opts.history, JSON.stringify({ history: result.history, skipped: result.skipped }, null, 2));
       l.ok(`wrote probe history to ${opts.history}`);
     }
-    finalize(result.findings, opts, "jimmy-rls-fuzz", "jimmy: rls fuzz", conn.shape.database);
+    await finalize(result.findings, opts, "jimmy-rls-fuzz", "jimmy: rls fuzz", conn.shape.database);
   } catch (e) {
     sp.fail(coerceMsg(e));
     handleError(e);
@@ -285,7 +311,7 @@ async function schemaCmd(opts: CommonOpts) {
     const findings = [...auditSchema(snapshot), ...auditPii(snapshot)];
     const idx = await conn.withClient((c) => auditIndexes(c, snapshot));
     findings.push(...idx.findings);
-    finalize(findings, opts, "jimmy-schema", "jimmy: schema integrity", conn.shape.database);
+    await finalize(findings, opts, "jimmy-schema", "jimmy: schema integrity", conn.shape.database);
   } catch (e) {
     sp.fail(coerceMsg(e));
     handleError(e);
@@ -309,7 +335,7 @@ async function migrationsCmd(
     if (opts.file) findings.push(...lintFile(opts.file, extraRules));
     if (opts.dir) findings.push(...lintDirectory(opts.dir, extraRules));
     sp.succeed(`linted ${opts.file ? "1 file" : "directory " + opts.dir}`);
-    finalize(findings, opts, "jimmy-migrations", "jimmy: migration lint", opts.file ?? opts.dir ?? ".");
+    await finalize(findings, opts, "jimmy-migrations", "jimmy: migration lint", opts.file ?? opts.dir ?? ".");
   } catch (e) {
     sp.fail(coerceMsg(e));
     handleError(e);
@@ -341,7 +367,7 @@ async function anomaliesCmd(opts: CommonOpts & { tests?: string; levels?: string
         ? `\n  recommended minimum isolation level for this workload: ${chalk.cyan(rec)}`
         : `\n  ${chalk.red("no isolation level was fully safe for the probed anomalies (unexpected)")}`,
     );
-    finalize(result.findings, opts, "jimmy-anomalies", "jimmy: transaction anomalies", conn.shape.database);
+    await finalize(result.findings, opts, "jimmy-anomalies", "jimmy: transaction anomalies", conn.shape.database);
   } catch (e) {
     sp.fail(coerceMsg(e));
     handleError(e);
@@ -360,7 +386,7 @@ async function nplusoneCmd(opts: CommonOpts & { threshold?: number; log?: string
       const entries = readTrace(opts.trace);
       sp.succeed(`read ${entries.length} trace entries`);
       const findings = detectNplusOneFromTrace(entries, { threshold: opts.threshold ?? 10 });
-      finalize(findings, opts, "jimmy-nplusone", "jimmy: n+1 detection", opts.trace);
+      await finalize(findings, opts, "jimmy-nplusone", "jimmy: n+1 detection", opts.trace);
       return;
     }
     let stats;
@@ -382,7 +408,7 @@ async function nplusoneCmd(opts: CommonOpts & { threshold?: number; log?: string
       }
     }
     const findings = detectNplusOne(stats, { threshold: opts.threshold ?? 50 });
-    finalize(findings, opts, "jimmy-nplusone", "jimmy: n+1 detection", opts.db ?? opts.log ?? ".");
+    await finalize(findings, opts, "jimmy-nplusone", "jimmy: n+1 detection", opts.db ?? opts.log ?? ".");
   } catch (e) {
     sp.fail(coerceMsg(e));
     handleError(e);
@@ -434,7 +460,7 @@ async function scanCmd(opts: CommonOpts & { migrationsDir?: string }) {
       sp4.succeed("migration lint done");
     }
 
-    finalize(findings, opts, "jimmy-report", "jimmy: full scan", conn.shape.database);
+    await finalize(findings, opts, "jimmy-report", "jimmy: full scan", conn.shape.database);
   } catch (e) {
     handleError(e);
   } finally {
@@ -473,6 +499,7 @@ const dbOpt = (cmd: Command) =>
     .option("--update-baseline", "write the current findings as the new baseline", false)
     .option("--diff", "with --baseline, report only newly introduced findings", false)
     .option("--redact", "mask string/number literals in evidence before writing reports", false)
+    .option("--ai", "ask Claude for schema-aware remediation suggestions (needs ANTHROPIC_API_KEY)", false)
     .option("--quiet", "minimal output for CI (one summary line, exit code)", false)
     .option("--allow-host <host>", "host allowlist (repeat for multiple)", (v: string, p: string[] = []) => [...p, v], [])
     .option("--i-know-what-im-doing", "override safety guards (do not use)", false);
@@ -504,6 +531,7 @@ mig
   .option("--update-baseline", "write the current findings as the new baseline", false)
   .option("--diff", "with --baseline, report only newly introduced findings", false)
   .option("--redact", "mask string/number literals in evidence before writing reports", false)
+  .option("--ai", "ask Claude for schema-aware remediation suggestions (needs ANTHROPIC_API_KEY)", false)
   .option("--quiet", "minimal output for CI (one summary line, exit code)", false)
   .action(migrationsCmd);
 
@@ -581,7 +609,7 @@ async function suggestCmd(opts: CommonOpts) {
         console.log(`    ${chalk.green(f.remediation ?? "")}\n`);
       }
     }
-    finalize(findings, opts, "jimmy-suggest", "jimmy: suggested properties", conn.shape.database);
+    await finalize(findings, opts, "jimmy-suggest", "jimmy: suggested properties", conn.shape.database);
   } catch (e) {
     handleError(e);
   } finally {
@@ -598,7 +626,7 @@ async function prismaCmd(opts: CommonOpts & { schema?: string }) {
     conn = await buildConnection({ ...opts, mode: "read-only" });
     const snapshot = await conn.withClient((c) => introspect(c, introspectOpts(opts)));
     const findings = crossCheckPrisma(text, snapshot);
-    finalize(findings, opts, "jimmy-prisma", "jimmy: prisma cross-check", conn.shape.database);
+    await finalize(findings, opts, "jimmy-prisma", "jimmy: prisma cross-check", conn.shape.database);
   } catch (e) {
     handleError(e);
   } finally {
@@ -632,7 +660,7 @@ async function regressCmd(opts: CommonOpts & { against?: string }) {
     conn = await buildConnection({ ...opts, mode: "read-only" });
     const after = await conn.withClient((c) => introspect(c, introspectOpts(opts)));
     const findings = diffSnapshots(before, after);
-    finalize(findings, opts, "jimmy-regress", "jimmy: schema regression", conn.shape.database);
+    await finalize(findings, opts, "jimmy-regress", "jimmy: schema regression", conn.shape.database);
   } catch (e) {
     handleError(e);
   } finally {
