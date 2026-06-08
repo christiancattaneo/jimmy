@@ -129,8 +129,8 @@ export const CATALOG: RuleDoc[] = [
   {
     id: "schema.missing-fk",
     severity: "medium",
-    summary: "An _id-shaped column with no foreign-key constraint.",
-    why: "App-side referential checks drift; the database is the only place the guarantee survives a deploy.",
+    summary: "An _id-shaped column with no foreign-key constraint (and a plausible local referent table).",
+    why: "App-side referential checks drift; the database is the only place the guarantee survives a deploy. Only fires when a table the column could reference exists, so external-system ids (resend_email_id, hubspot_contact_id) are not flagged.",
     fix: "Add the FK constraint if a relationship was intended.",
   },
   {

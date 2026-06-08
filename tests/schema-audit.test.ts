@@ -41,16 +41,33 @@ describe("auditSchema: no-primary-key", () => {
 });
 
 describe("auditSchema: missing-fk", () => {
-  it("flags _id columns without FK", () => {
+  it("flags _id columns without FK (when a plausible referent table exists)", () => {
     const f = auditSchema(
       snapshot({
-        tables: [{ schema: "public", name: "orders", rlsEnabled: false, rlsForced: false, estimatedRows: 0 }],
+        tables: [
+          { schema: "public", name: "orders", rlsEnabled: false, rlsForced: false, estimatedRows: 0 },
+          { schema: "public", name: "users", rlsEnabled: false, rlsForced: false, estimatedRows: 0 },
+        ],
         columns: [
           { schema: "public", table: "orders", name: "user_id", ordinal: 1, dataType: "uuid", isNullable: false, hasDefault: false, default: null },
         ],
       }),
     );
     expect(f.find((x) => x.ruleId === "schema.missing-fk")).toBeDefined();
+  });
+
+  it("does NOT flag an external-system id with no local referent table", () => {
+    const f = auditSchema(
+      snapshot({
+        tables: [{ schema: "public", name: "inquiries", rlsEnabled: false, rlsForced: false, estimatedRows: 0 }],
+        columns: [
+          { schema: "public", table: "inquiries", name: "hubspot_contact_id", ordinal: 1, dataType: "text", isNullable: true, hasDefault: false, default: null },
+          { schema: "public", table: "inquiries", name: "resend_email_id", ordinal: 2, dataType: "text", isNullable: true, hasDefault: false, default: null },
+        ],
+      }),
+    );
+    expect(f.find((x) => x.ruleId === "schema.missing-fk")).toBeUndefined();
+    expect(f.find((x) => x.ruleId === "schema.fk-no-index")).toBeUndefined();
   });
 
   it("does not flag the column 'id' itself", () => {
@@ -83,7 +100,10 @@ describe("auditSchema: missing-fk", () => {
   it("escalates severity for tenant_id", () => {
     const f = auditSchema(
       snapshot({
-        tables: [{ schema: "public", name: "t", rlsEnabled: false, rlsForced: false, estimatedRows: 0 }],
+        tables: [
+          { schema: "public", name: "t", rlsEnabled: false, rlsForced: false, estimatedRows: 0 },
+          { schema: "public", name: "tenants", rlsEnabled: false, rlsForced: false, estimatedRows: 0 },
+        ],
         columns: [
           { schema: "public", table: "t", name: "tenant_id", ordinal: 1, dataType: "uuid", isNullable: false, hasDefault: false, default: null },
         ],
@@ -147,7 +167,10 @@ describe("auditSchema: fk-no-index", () => {
   it("flags fk-shaped columns with no index", () => {
     const f = auditSchema(
       snapshot({
-        tables: [{ schema: "public", name: "orders", rlsEnabled: false, rlsForced: false, estimatedRows: 0 }],
+        tables: [
+          { schema: "public", name: "orders", rlsEnabled: false, rlsForced: false, estimatedRows: 0 },
+          { schema: "public", name: "users", rlsEnabled: false, rlsForced: false, estimatedRows: 0 },
+        ],
         columns: [
           { schema: "public", table: "orders", name: "user_id", ordinal: 1, dataType: "uuid", isNullable: false, hasDefault: false, default: null },
         ],

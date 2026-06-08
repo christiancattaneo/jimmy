@@ -67,6 +67,27 @@ export function auditSchema(
     }
   }
 
+  // Lowercased set of every table name, to check whether an _id column has a
+  // plausible local referent. A column like resend_email_id or
+  // hubspot_contact_id is an external-system id (no resend_emails or
+  // hubspot_contacts table exists), not a foreign key, so it should not be
+  // flagged missing-fk.
+  const tableNames = new Set(snapshot.tables.map((t) => t.name.toLowerCase()));
+  const plausibleReferentExists = (columnName: string): boolean => {
+    const base = columnName.toLowerCase().replace(/_id$/, "");
+    if (!base) return false;
+    const lastSegment = base.split("_").pop() ?? base;
+    const candidates = new Set<string>();
+    for (const stem of [base, lastSegment]) {
+      candidates.add(stem);
+      candidates.add(stem + "s"); // user -> users
+      candidates.add(stem + "es"); // box -> boxes (rough)
+      if (stem.endsWith("y")) candidates.add(stem.slice(0, -1) + "ies"); // category -> categories
+    }
+    for (const c of candidates) if (tableNames.has(c)) return true;
+    return false;
+  };
+
   for (const table of snapshot.tables) {
     const tFqn = fqn(table.schema, table.name);
     const tableKey = `${table.schema}.${table.name}`;
@@ -113,7 +134,14 @@ export function auditSchema(
     const colFqn = `${col.schema}.${col.table}.${col.name}`;
     const lowered = col.name.toLowerCase();
 
-    const looksLikeFk = fkSuffixes.some((s) => lowered.endsWith(s.toLowerCase())) && lowered !== "id";
+    // FK-shaped only if it ends with a FK suffix AND a plausible local referent
+    // table exists. The referent check filters out external-system ids
+    // (resend_email_id, hubspot_contact_id, stripe_customer_id) that share the
+    // _id shape but reference nothing in this database.
+    const looksLikeFk =
+      fkSuffixes.some((s) => lowered.endsWith(s.toLowerCase())) &&
+      lowered !== "id" &&
+      plausibleReferentExists(col.name);
     if (looksLikeFk && !fkSet.has(`${col.schema}.${col.table}.${col.name}`)) {
       const sev: Severity = lowered === "tenant_id" || lowered === "organization_id" ? "high" : "medium";
       findings.push({
