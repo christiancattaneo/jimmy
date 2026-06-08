@@ -22,9 +22,18 @@ function isTextual(col: ColumnInfo): boolean {
   return t === "text" || t.startsWith("character") || t.startsWith("varchar") || t === "citext";
 }
 
-/** A column that already looks like a hash/digest/encrypted blob is fine. */
+/**
+ * A column that already looks like a hash/digest/encrypted blob is fine, and so
+ * is a column that only holds a *reference* to a secret kept elsewhere (a Vault
+ * key id, an ARN, a URL/URI, a foreign-key-style id). Those suffixes denote a
+ * pointer, not the secret value, so flagging them is noise (e.g. `secret_ref`,
+ * `api_key_id`, `token_arn`).
+ */
 function looksProtected(name: string): boolean {
-  return /(_hash|_digest|_hashed|_encrypted|_enc|_bcrypt|_argon2)$/i.test(name) || /^hashed_/i.test(name);
+  if (/(_hash|_digest|_hashed|_encrypted|_enc|_bcrypt|_argon2)$/i.test(name)) return true;
+  if (/^hashed_/i.test(name)) return true;
+  if (/(_ref|_id|_arn|_url|_uri)$/i.test(name)) return true;
+  return false;
 }
 
 interface Pattern {

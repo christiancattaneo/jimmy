@@ -40,6 +40,27 @@ describe("looksProtected", () => {
     expect(looksProtected("password")).toBe(false);
     expect(looksProtected("api_key")).toBe(false);
   });
+
+  it("treats reference-pointer suffixes as protected (pointer, not value)", () => {
+    expect(looksProtected("secret_ref")).toBe(true);
+    expect(looksProtected("api_key_id")).toBe(true);
+    expect(looksProtected("token_arn")).toBe(true);
+    expect(looksProtected("private_key_url")).toBe(true);
+    expect(looksProtected("client_secret_uri")).toBe(true);
+  });
+});
+
+describe("auditPii: reference columns are not secrets", () => {
+  it("does not flag secret_ref (a pointer to a vault secret)", () => {
+    const f = auditPii(snap([{ name: "secret_ref" }]));
+    expect(f).toHaveLength(0);
+  });
+
+  it("still flags the bare secret value next to a reference", () => {
+    const f = auditPii(snap([{ name: "secret_ref" }, { name: "access_token" }]));
+    expect(f).toHaveLength(1);
+    expect(f[0]?.location.column).toBe("access_token");
+  });
 });
 
 describe("auditPii: passwords", () => {
