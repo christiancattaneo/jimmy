@@ -51,6 +51,41 @@ describe("parsePrismaSchema", () => {
   it("defaults table name to the lowercased model when no @@map", () => {
     expect(parsePrismaSchema(SCHEMA).find((m) => m.model === "Post")!.table).toBe("post");
   });
+
+  it("handles real-world features: enums, @db annotations, @relation, @@map, @map", () => {
+    const real = `
+enum Role { ADMIN USER }
+
+model House {
+  id        String   @id @default(uuid())
+  name      String   @unique @db.VarChar(120)
+  color     String?
+  role      Role     @default(USER)
+  createdAt DateTime @default(now()) @map("created_at")
+  students  Student[]
+  @@map("houses")
+}
+
+model Student {
+  id      String @id
+  houseId String @map("house_id")
+  house   House  @relation(fields: [houseId], references: [id])
+}
+`;
+    const models = parsePrismaSchema(real);
+    const house = models.find((m) => m.model === "House")!;
+    expect(house.table).toBe("houses");
+    const cols = house.fields.map((f) => f.column);
+    // scalar + enum columns kept; relation list skipped
+    expect(cols).toEqual(expect.arrayContaining(["id", "name", "color", "role", "created_at"]));
+    expect(cols).not.toContain("students");
+    expect(house.fields.find((f) => f.name === "color")?.optional).toBe(true);
+
+    const student = models.find((m) => m.model === "Student")!;
+    // the scalar FK column is a column; the relation object field is not
+    expect(student.fields.map((f) => f.column)).toContain("house_id");
+    expect(student.fields.map((f) => f.column)).not.toContain("house");
+  });
 });
 
 describe("crossCheckPrisma", () => {

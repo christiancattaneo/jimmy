@@ -42,6 +42,14 @@ const SCALAR_TYPES = new Set([
 ]);
 
 export function parsePrismaSchema(text: string): PrismaModel[] {
+  // First pass: collect model and enum names so a field's type can be
+  // classified. A field typed as a model is a relation (navigation object, not
+  // a column); a field typed as an enum is a real column.
+  const modelNames = new Set<string>();
+  const enumNames = new Set<string>();
+  for (const mm of text.matchAll(/\bmodel\s+(\w+)\s*\{/g)) modelNames.add(mm[1]!);
+  for (const em of text.matchAll(/\benum\s+(\w+)\s*\{/g)) enumNames.add(em[1]!);
+
   const models: PrismaModel[] = [];
   const modelRe = /model\s+(\w+)\s*\{([\s\S]*?)\}/g;
   let m: RegExpExecArray | null;
@@ -59,9 +67,14 @@ export function parsePrismaSchema(text: string): PrismaModel[] {
       const fm = line.match(/^(\w+)\s+(\w+)(\?|\[\])?/);
       if (!fm) continue;
       const [, name, type, modifier] = fm;
-      // an enum or scalar is a column; a model type or array is a relation
-      const isScalarLike = SCALAR_TYPES.has(type!) || (modifier !== "[]" && /^[A-Z]/.test(type!) && !/\[\]$/.test(line));
-      if (modifier === "[]") continue; // relation list, not a column
+      // A field is a column iff its type is a scalar or an enum. A list (`[]`),
+      // an explicit @relation, or a field typed as another model is a relation
+      // and maps to no column (the FK scalar is a separate field).
+      const isColumn =
+        modifier !== "[]" &&
+        !/@relation\b/.test(line) &&
+        (SCALAR_TYPES.has(type!) || enumNames.has(type!) || !modelNames.has(type!));
+      if (!isColumn) continue;
       let column = name!;
       const colMap = line.match(/@map\(\s*"([^"]+)"\s*\)/);
       if (colMap) column = colMap[1]!;
