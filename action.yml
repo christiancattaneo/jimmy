@@ -27,16 +27,24 @@ inputs:
     description: "Report basename (without extension)"
     required: false
     default: "jimmy-report"
+  version:
+    description: "Version of jimmy-db to run from npm (e.g. 0.1.0). Pin for reproducible CI."
+    required: false
+    default: "latest"
 
 outputs:
   total:
     description: "Total number of findings"
+    value: ${{ steps.jimmy.outputs.total }}
   critical:
     description: "Number of critical findings"
+    value: ${{ steps.jimmy.outputs.critical }}
   high:
     description: "Number of high findings"
+    value: ${{ steps.jimmy.outputs.high }}
   sarif-file:
     description: "Path to the SARIF report"
+    value: ${{ steps.jimmy.outputs.sarif-file }}
 
 runs:
   using: "composite"
@@ -46,18 +54,11 @@ runs:
       with:
         node-version: "20"
 
-    - name: Install jimmy
-      shell: bash
-      run: |
-        cd ${{ github.action_path }}
-        npm ci
-        npm run build
-
     - name: Run jimmy
       shell: bash
+      env:
+        JIMMY_VERSION: ${{ inputs.version }}
       run: |
-        cd ${{ github.action_path }}
-        ARGS=()
         case "${{ inputs.command }}" in
           migrations)
             CMD=(migrations lint --dir "${{ github.workspace }}/${{ inputs.migrations-dir }}")
@@ -78,7 +79,7 @@ runs:
             echo "unknown command: ${{ inputs.command }}"; exit 1
             ;;
         esac
-        node dist/cli/index.js "${CMD[@]}" \
+        npx --yes "jimmy-db@${JIMMY_VERSION}" "${CMD[@]}" \
           --fail-on "${{ inputs.fail-on }}" \
           ${{ inputs.baseline && format('--baseline "{0}"', inputs.baseline) || '' }} \
           --output "${{ github.workspace }}/${{ inputs.output }}" \
